@@ -17,7 +17,10 @@ COPY packages/eslint-config/package.json packages/eslint-config/
 RUN corepack enable && \
     PNPM_VERSION="$(node -p 'require("./package.json").packageManager')" && \
     corepack prepare "$PNPM_VERSION" --activate
-RUN pnpm install --frozen-lockfile
+# Persist the pnpm store across builds so lockfile-unchanged rebuilds skip the
+# multi-minute download (day-to-day fork UI verification).
+RUN --mount=type=cache,id=multica-pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
 
 # --- Build ---
 FROM node:22-alpine AS builder
@@ -40,14 +43,17 @@ COPY apps/web/ apps/web/
 COPY packages/ packages/
 
 # Re-link after source overlay (fixes any symlinks overwritten by COPY)
-RUN pnpm install --frozen-lockfile --offline
+RUN --mount=type=cache,id=multica-pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --offline
 
 ARG NEXT_PUBLIC_APP_VERSION=dev
 ENV NEXT_PUBLIC_APP_VERSION=$NEXT_PUBLIC_APP_VERSION
 ENV STANDALONE=true
 
-# Build the web app (standalone output for minimal runtime)
-RUN pnpm --filter @multica/web build
+# Build the web app (standalone output for minimal runtime).
+# Cache Next's incremental compile artifacts across rebuilds.
+RUN --mount=type=cache,id=multica-next-cache,target=/app/apps/web/.next/cache \
+    pnpm --filter @multica/web build
 
 # --- Runtime ---
 FROM node:22-alpine AS runner

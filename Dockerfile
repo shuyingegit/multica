@@ -7,7 +7,8 @@ WORKDIR /src
 
 # Cache dependencies
 COPY server/go.mod server/go.sum ./server/
-RUN cd server && go mod download
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    cd server && go mod download
 
 # Copy server source
 COPY server/ ./server/
@@ -19,16 +20,28 @@ ARG DATE=unknown
 # Official Multica release this fork build was synced from (Help popover).
 ARG UPSTREAM_VERSION=
 COPY UPSTREAM_BASE ./UPSTREAM_BASE
-RUN UV="${UPSTREAM_VERSION}"; \
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
+    UV="${UPSTREAM_VERSION}"; \
     if [ -z "$$UV" ] && [ -f UPSTREAM_BASE ]; then UV=$$(tr -d '[:space:]' < UPSTREAM_BASE); fi; \
     cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.upstreamVersion=$${UV}" -o bin/server ./cmd/server
-RUN UV="${UPSTREAM_VERSION}"; \
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
+    UV="${UPSTREAM_VERSION}"; \
     if [ -z "$$UV" ] && [ -f UPSTREAM_BASE ]; then UV=$$(tr -d '[:space:]' < UPSTREAM_BASE); fi; \
     cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.upstreamVersion=$${UV}" -o bin/multica ./cmd/multica
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/migrate ./cmd/migrate
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/maintenance ./cmd/maintenance
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_task_usage_hourly ./cmd/backfill_task_usage_hourly
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_codex_usage_cache ./cmd/backfill_codex_usage_cache
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/migrate ./cmd/migrate
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/maintenance ./cmd/maintenance
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_task_usage_hourly ./cmd/backfill_task_usage_hourly
+RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_codex_usage_cache ./cmd/backfill_codex_usage_cache
 
 # --- Runtime stage ---
 FROM alpine:3.21

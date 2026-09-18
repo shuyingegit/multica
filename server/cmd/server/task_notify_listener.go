@@ -14,34 +14,41 @@ import (
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
-// registerTaskNotifyListeners wires optional WeChat/wxsend-style outbound
-// alerts when an issue-linked agent run reaches a terminal state.
+// registerTaskNotifyListeners wires outbound task-end alerts.
 //
 // Design (SCS fork — away-from-desk awareness):
 //   - Trigger ONLY on task:completed / task:failed (not every comment, not
 //     progress_update chatter). Intermediate agent turns stay quiet.
 //   - Skip chat-session tasks and auto-retry failures (retry_pending).
-//   - Destination URL comes from MULTICA_TASK_NOTIFY_URL — never hardcoded.
-//   - Empty URL disables the feature entirely.
-func registerTaskNotifyListeners(bus *events.Bus, queries *db.Queries, client *notify.Client, appBaseURL string) {
-	if bus == nil || queries == nil || client == nil || !client.Enabled() {
+//   - Destinations come from workspace.settings.task_notify (Settings →
+//     Integrations → 任务结束推送). Operators enable WeChat URL and/or
+//     ClawBot per workspace.
+//   - Legacy MULTICA_TASK_NOTIFY_URL still works as a fallback when the
+//     workspace has not configured wechat_url yet.
+func registerTaskNotifyListeners(bus *events.Bus, queries *db.Queries, envFallbackURL, appBaseURL string) {
+	if bus == nil || queries == nil {
 		return
 	}
 	appBaseURL = strings.TrimRight(strings.TrimSpace(appBaseURL), "/")
+	envFallbackURL = strings.TrimSpace(envFallbackURL)
 
 	bus.Subscribe(protocol.EventTaskCompleted, func(e events.Event) {
-		go handleTaskNotify(context.Background(), queries, client, appBaseURL, e, "completed")
+		go handleTaskNotify(context.Background(), queries, envFallbackURL, appBaseURL, e, "completed")
 	})
 	bus.Subscribe(protocol.EventTaskFailed, func(e events.Event) {
-		go handleTaskNotify(context.Background(), queries, client, appBaseURL, e, "failed")
+		go handleTaskNotify(context.Background(), queries, envFallbackURL, appBaseURL, e, "failed")
 	})
-	slog.Info("task notify listener registered", "endpoint", redactNotifyHost(client.BaseURL))
+	if envFallbackURL != "" {
+		slog.Info("task notify listener registered", "legacy_env", redactNotifyHost(envFallbackURL))
+	} else {
+		slog.Info("task notify listener registered", "legacy_env", "(none — use workspace settings)")
+	}
 }
 
 func handleTaskNotify(
 	ctx context.Context,
 	queries *db.Queries,
-	client *notify.Client,
+	envFallbackURL string,
 	appBaseURL string,
 	e events.Event,
 	kind string,
@@ -79,6 +86,11 @@ func handleTaskNotify(
 		return
 	}
 
+	channels := notify.ActiveChannels(notify.ParseConfig(ws.Settings, envFallbackURL))
+	if len(channels) == 0 {
+		return
+	}
+
 	identifier := service.IssueIdentifier(ws.IssuePrefix, issue.Number)
 	agentName := lookupAgentName(ctx, queries, agentID)
 
@@ -97,14 +109,17 @@ func handleTaskNotify(
 		content = buildFailedContent(issue.Title, agentName, errText, appBaseURL, ws.Slug, identifier)
 	}
 
+	msg := notify.Message{Title: title, Content: content}
 	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := client.Send(sendCtx, notify.Message{Title: title, Content: content}); err != nil {
-		slog.Warn("task notify: send failed",
-			"issue", identifier, "kind", kind, "error", err)
-		return
+	for _, ch := range channels {
+		if err := ch.Send(sendCtx, msg); err != nil {
+			slog.Warn("task notify: send failed",
+				"issue", identifier, "kind", kind, "channel", ch.Name(), "error", err)
+			continue
+		}
+		slog.Info("task notify: sent", "issue", identifier, "kind", kind, "channel", ch.Name())
 	}
-	slog.Info("task notify: sent", "issue", identifier, "kind", kind)
 }
 
 func lookupAgentName(ctx context.Context, queries *db.Queries, agentID string) string {

@@ -1356,5 +1356,27 @@
     "status_loading": "Checking...",
     "status_unknown": "Status unavailable",
     "channel_hint": "Chat with agents and create issues from {{channel}}."
+  },
+  "task_notify": {
+    "section_title": "Task-end notify",
+    "page_description": "Push to a WeChat service-account URL or WeChat ClawBot when a task completes or fails. Enable each channel separately.",
+    "intro": "Purpose: task-end alerts. Enable either or both channels below; they take effect once required fields are filled.",
+    "wechat_url_title": "WeChat service URL",
+    "wechat_url_description": "Provide a wxsend-style URL. We GET it with title/content when a task ends.",
+    "url_label": "Notify URL",
+    "url_hint": "Example: https://your-host/wxsend. Empty URL never sends, even if enabled.",
+    "clawbot_title": "WeChat ClawBot",
+    "clawbot_description": "PushPlus → WeChat ClawBot chat. Endpoint and channel are fixed in code; you only configure the token.",
+    "endpoint_label": "Endpoint (fixed)",
+    "channel_label": "channel (fixed)",
+    "token_label": "Token",
+    "token_placeholder": "From PushPlus / your ops team",
+    "clawbot_hint": "Keepalive: after ~10 messages, reply once in WeChat ClawBot; chat at least once every 24h or the listener drops.",
+    "save": "Save",
+    "saving": "Saving…",
+    "discard": "Discard",
+    "readonly_hint": "Only workspace owners or admins can edit message channels.",
+    "trigger_hint": "Fires only on issue-linked agent task completed/failed — not on ordinary comments or progress updates.",
+    "toast_failed": "Failed to save"
   }
 }

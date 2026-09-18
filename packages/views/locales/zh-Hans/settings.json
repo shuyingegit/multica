@@ -1349,5 +1349,27 @@
     "status_loading": "正在检查...",
     "status_unknown": "状态暂不可用",
     "channel_hint": "在 {{channel}} 中与智能体对话、创建任务。"
+  },
+  "task_notify": {
+    "section_title": "任务结束推送",
+    "page_description": "任务完成或失败时，推送到微信服务号 URL 或微信 ClawBot。可分别启用。",
+    "intro": "核心能力是「任务结束」提醒。下面两种消息渠道可单独开关；启用并填好必要配置后即生效。",
+    "wechat_url_title": "微信服务号 URL",
+    "wechat_url_description": "你提供推送 URL（如 wxsend），我们在任务结束时用 GET 带 title/content 调用。",
+    "url_label": "推送 URL",
+    "url_hint": "示例：https://your-host/wxsend 。空 URL 即使开启也不会发送。",
+    "clawbot_title": "微信 ClawBot",
+    "clawbot_description": "经 PushPlus 推到微信「微信 ClawBot」对话。接口地址与 channel 已内置，只需填写 token。",
+    "endpoint_label": "接口地址（固定）",
+    "channel_label": "channel（固定）",
+    "token_label": "Token",
+    "token_placeholder": "在 PushPlus / 运营处获取",
+    "clawbot_hint": "注意：每约 10 条需在微信里给 ClawBot 随便回一条保活；每 24 小时至少对话一次，否则监听会断。",
+    "save": "保存",
+    "saving": "保存中…",
+    "discard": "取消更改",
+    "readonly_hint": "仅工作区所有者或管理员可修改消息渠道。",
+    "trigger_hint": "只会在 issue 上的 agent 任务「完成」或「失败」时推送；普通评论与中间进度不会推。",
+    "toast_failed": "保存失败"
   }
 }

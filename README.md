@@ -35,23 +35,21 @@
 
 - Help 中展示：**本服版本**、**官方同步基线**（`UPSTREAM_BASE`）、以及可对照的上游信息，方便确认当前跑的是哪一版 fork 构建。
 
-### 4. 任务完成 / 失败推送（可选）
+### 4. 任务完成 / 失败推送（设置 → 集成 → 消息渠道）
 
-人不在电脑前时，只关心「哪张票跑完了」，因此：
+人不在电脑前时，只关心「哪张票跑完了」。在 **设置 → 集成 → 消息渠道 → 任务结束推送** 里配置，可分别启用：
+
+| 渠道 | 用户配置 | 代码写死 |
+|---|---|---|
+| **微信服务号 URL** | 启用开关 + 推送 URL（wxsend 风格 GET） | — |
+| **微信 ClawBot** | 启用开关 + PushPlus `token` | 接口 `https://www.pushplus.plus/send`，`channel=clawbot` |
 
 - **会推**：issue 上 agent 的 `task:completed` / 终端 `task:failed`
 - **不推**：普通评论、进度类中间态、自动重试中的失败、纯聊天 session
-
-配置（**只写在部署机 `.env`，不要提交真实 URL**）：
-
-```bash
-MULTICA_TASK_NOTIFY_URL=https://YOUR-WX-SEND-HOST/wxsend
-MULTICA_TASK_NOTIFY_APP_URL=https://your-public-multica-origin   # 可选，拼深链
-```
-
-- 空 `MULTICA_TASK_NOTIFY_URL` = 关闭功能  
-- 模板：`scripts/fork-notify.env.example`  
-- 实现：`server/internal/notify` + `task_notify_listener`
+- 两种渠道可同时开；未启用或缺少 URL/token 则跳过该渠道
+- 兼容：部署机仍可设 `MULTICA_TASK_NOTIFY_URL` 作为微信 URL 渠道的旧 fallback（建议迁到设置里）
+- 深链可选：`MULTICA_TASK_NOTIFY_APP_URL` / `MULTICA_PUBLIC_URL`（拼 issue 链接）
+- 实现：`server/internal/notify` + `task_notify_listener`；前端 `task-notify-tab`
 
 ### 5. 部署约定与快速发布
 

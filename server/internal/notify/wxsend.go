@@ -1,6 +1,7 @@
 // Package notify sends optional outbound task-completion alerts for the SCS
-// fork. The destination URL is never baked into source — operators set
-// MULTICA_TASK_NOTIFY_URL in the deploy .env (not committed).
+// fork. Destinations are configured per workspace in Settings → Integrations
+// (workspace.settings.task_notify). Legacy MULTICA_TASK_NOTIFY_URL in the
+// deploy .env still works as a fallback for the WeChat URL channel.
 package notify
 
 import (

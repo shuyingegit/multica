@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowLeft, ChevronRight, FolderGit2, Blocks } from "lucide-react";
+import { ArrowLeft, ChevronRight, FolderGit2, Blocks, Bell } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, errorCode } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -19,6 +19,11 @@ import { telegramInstallationsOptions } from "@multica/core/telegram";
 import { vcsConnectionsOptions } from "@multica/core/vcs";
 import { useConfigStore, useFeatureEnabled } from "@multica/core/config";
 import { COMPOSIO_MCP_APPS_FLAG } from "@multica/core/feature-flags";
+import { useCurrentWorkspace } from "@multica/core/paths";
+import {
+  deriveTaskNotifySettings,
+  isTaskNotifyConnected,
+} from "@multica/core/task-notify";
 import { cn } from "@multica/ui/lib/utils";
 import { AppLink, useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
@@ -31,6 +36,7 @@ import { WecomTab } from "./wecom-tab";
 import { TelegramTab } from "./telegram-tab";
 import { GitHubTab } from "./github-tab";
 import { GitHubMark } from "./github-mark";
+import { TaskNotifyTab } from "./task-notify-tab";
 import { SettingsCard, SettingsSection, SettingsTab } from "./settings-layout";
 import { IntegrationChannelIcon } from "./integration-channel-icon";
 import { resolveSettingsLocation, settingsHref } from "./settings-navigation";
@@ -62,6 +68,7 @@ export function IntegrationsTab() {
   const { t } = useT("settings");
   const navigation = useNavigation();
   const wsId = useWorkspaceId();
+  const workspace = useCurrentWorkspace();
   const { member } = useCurrentMember(wsId);
   const canView = !!wsId && !!member;
   const composioEnabled = useFeatureEnabled(COMPOSIO_MCP_APPS_FLAG, false);
@@ -117,6 +124,14 @@ export function IntegrationsTab() {
     enabled: composioAvailable,
     select: (data) => data.some((connection) => connection.status === "active"),
   });
+  const taskNotifyConnected = isTaskNotifyConnected(
+    deriveTaskNotifySettings(workspace),
+  );
+  const taskNotify: ConnectionState = {
+    data: taskNotifyConnected,
+    isPending: !workspace,
+    isError: false,
+  };
   const groups: {
     id: string;
     label: string;
@@ -153,6 +168,14 @@ export function IntegrationsTab() {
       id: "messaging",
       label: t(($) => $.integrations.messaging_title),
       entries: [
+        {
+          id: "task-notify",
+          label: t(($) => $.task_notify.section_title),
+          description: t(($) => $.task_notify.page_description),
+          icon: <Bell className="size-5" />,
+          content: <TaskNotifyTab />,
+          state: taskNotify,
+        },
         {
           id: "lark",
           label: t(($) => $.lark.section_title),
@@ -286,7 +309,7 @@ export function IntegrationsTab() {
                     <ConnectionBadge state={item.state} />{" "}
                   </span>
                   <span className="mt-1 block text-caption leading-5 text-muted-foreground">
-                    {group.id === "messaging"
+                    {group.id === "messaging" && item.id !== "task-notify"
                       ? t(($) => $.integrations.channel_hint, {
                           channel: item.label,
                         })

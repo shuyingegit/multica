@@ -26,7 +26,6 @@ import (
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/maintenance"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
-	"github.com/multica-ai/multica/server/internal/notify"
 	"github.com/multica-ai/multica/server/internal/profiling"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/scheduler"
@@ -601,7 +600,7 @@ func main() {
 	registerTaskNotifyListeners(
 		bus,
 		queries,
-		notify.NewClient(os.Getenv("MULTICA_TASK_NOTIFY_URL")),
+		os.Getenv("MULTICA_TASK_NOTIFY_URL"),
 		firstNonEmpty(
 			os.Getenv("MULTICA_TASK_NOTIFY_APP_URL"),
 			os.Getenv("MULTICA_PUBLIC_URL"),

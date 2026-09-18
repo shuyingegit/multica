@@ -12,6 +12,9 @@ const SettingsKey = "task_notify"
 type Config struct {
 	WechatURL WechatURLChannel `json:"wechat_url"`
 	Clawbot   ClawbotChannel   `json:"clawbot"`
+	// AppBaseURL is the public web origin (scheme+host+port) stamped from the
+	// real browser. Prefer this over server-side localhost env for push links.
+	AppBaseURL string `json:"app_base_url"`
 }
 
 type WechatURLChannel struct {
@@ -49,6 +52,7 @@ func ParseConfig(settingsJSON []byte, envFallbackURL string) Config {
 	}
 	cfg.WechatURL.URL = strings.TrimSpace(cfg.WechatURL.URL)
 	cfg.Clawbot.Token = strings.TrimSpace(cfg.Clawbot.Token)
+	cfg.AppBaseURL = strings.TrimRight(strings.TrimSpace(cfg.AppBaseURL), "/")
 
 	envFallbackURL = strings.TrimSpace(envFallbackURL)
 	if !hasBlock && envFallbackURL != "" {
@@ -58,6 +62,43 @@ func ParseConfig(settingsJSON []byte, envFallbackURL string) Config {
 		cfg.WechatURL.Enabled = true
 	}
 	return cfg
+}
+
+// IsLoopbackBaseURL reports localhost / loopback origins that must not be
+// preferred for outbound push deep links.
+func IsLoopbackBaseURL(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	lower := strings.ToLower(raw)
+	// Strip scheme for a cheap host check without pulling net/url into callers.
+	if i := strings.Index(lower, "://"); i >= 0 {
+		lower = lower[i+3:]
+	}
+	if j := strings.IndexAny(lower, "/:"); j >= 0 {
+		lower = lower[:j]
+	}
+	lower = strings.Trim(lower, "[]")
+	return lower == "localhost" || lower == "127.0.0.1" || lower == "::1"
+}
+
+// ResolveAppBaseURL picks the public origin for issue deep links in pushes.
+// Prefer a non-loopback workspace stamp (from the browser); then a non-loopback
+// env; only then fall back to whatever remains (may still be empty).
+func ResolveAppBaseURL(fromSettings, fromEnv string) string {
+	fromSettings = strings.TrimRight(strings.TrimSpace(fromSettings), "/")
+	fromEnv = strings.TrimRight(strings.TrimSpace(fromEnv), "/")
+	if fromSettings != "" && !IsLoopbackBaseURL(fromSettings) {
+		return fromSettings
+	}
+	if fromEnv != "" && !IsLoopbackBaseURL(fromEnv) {
+		return fromEnv
+	}
+	if fromSettings != "" {
+		return fromSettings
+	}
+	return fromEnv
 }
 
 // ActiveChannels builds ready-to-send channels from config.

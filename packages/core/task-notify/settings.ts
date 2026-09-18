@@ -18,6 +18,11 @@ export interface ClawbotChannelConfig {
 export interface TaskNotifySettings {
   wechat_url: WechatUrlChannelConfig;
   clawbot: ClawbotChannelConfig;
+  /**
+   * Public web origin used in push deep links (scheme + host + port).
+   * Captured from the real browser (`window.location.origin`), not server localhost.
+   */
+  app_base_url: string;
 }
 
 export const CLAWBOT_ENDPOINT = "https://www.pushplus.plus/send";
@@ -26,7 +31,26 @@ export const CLAWBOT_CHANNEL = "clawbot";
 const EMPTY: TaskNotifySettings = {
   wechat_url: { enabled: false, url: "" },
   clawbot: { enabled: false, token: "" },
+  app_base_url: "",
 };
+
+/** True for localhost / 127.0.0.1 / ::1 origins — not usable in outbound push links. */
+export function isLoopbackAppBaseUrl(raw: string): boolean {
+  const s = raw.trim();
+  if (!s) return false;
+  try {
+    const host = new URL(s).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return /^(https?:\/\/)?(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(s);
+  }
+}
+
+/** Current browser origin when available (client only). */
+export function browserAppBaseUrl(): string {
+  if (typeof window === "undefined" || !window.location?.origin) return "";
+  return window.location.origin.replace(/\/$/, "");
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -61,10 +85,18 @@ export function deriveTaskNotifySettings(
 ): TaskNotifySettings {
   const root = asRecord(workspace?.settings);
   const block = asRecord(root?.[TASK_NOTIFY_SETTINGS_KEY]);
-  if (!block) return { wechat_url: { ...EMPTY.wechat_url }, clawbot: { ...EMPTY.clawbot } };
+  if (!block) {
+    return {
+      wechat_url: { ...EMPTY.wechat_url },
+      clawbot: { ...EMPTY.clawbot },
+      app_base_url: "",
+    };
+  }
   return {
     wechat_url: readWechatUrl(block.wechat_url),
     clawbot: readClawbot(block.clawbot),
+    app_base_url:
+      typeof block.app_base_url === "string" ? block.app_base_url.trim().replace(/\/$/, "") : "",
   };
 }
 
@@ -90,6 +122,7 @@ export function mergeTaskNotifySettings(
         enabled: next.clawbot.enabled,
         token: next.clawbot.token.trim(),
       },
+      app_base_url: next.app_base_url.trim().replace(/\/$/, ""),
     },
   };
 }

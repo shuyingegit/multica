@@ -18,6 +18,7 @@ import type { Workspace } from "@multica/core/types";
 import {
   CLAWBOT_CHANNEL,
   CLAWBOT_ENDPOINT,
+  browserAppBaseUrl,
   deriveTaskNotifySettings,
   mergeTaskNotifySettings,
   type TaskNotifySettings,
@@ -52,9 +53,14 @@ export function TaskNotifyTab() {
     if (!workspace || !canManage || saving) return;
     setSaving(true);
     try {
+      // Always stamp the real browser origin so push links are not localhost.
+      const withOrigin: TaskNotifySettings = {
+        ...current,
+        app_base_url: browserAppBaseUrl() || current.app_base_url,
+      };
       const merged = mergeTaskNotifySettings(
         (workspace.settings as Record<string, unknown>) ?? {},
-        current,
+        withOrigin,
       );
       const updated = await api.updateWorkspace(workspace.id, { settings: merged });
       qc.setQueryData(workspaceKeys.list(), (old: Workspace[] | undefined) =>
@@ -76,6 +82,32 @@ export function TaskNotifyTab() {
       <p className="text-caption text-muted-foreground">
         {t(($) => $.task_notify.intro)}
       </p>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-body">
+            {t(($) => $.task_notify.app_base_title)}
+          </CardTitle>
+          <CardDescription>
+            {t(($) => $.task_notify.app_base_description)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label htmlFor="task-notify-app-base">
+            {t(($) => $.task_notify.app_base_label)}
+          </Label>
+          <Input
+            id="task-notify-app-base"
+            type="url"
+            readOnly
+            disabled
+            value={browserAppBaseUrl() || current.app_base_url || "—"}
+          />
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.task_notify.app_base_hint)}
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-3">

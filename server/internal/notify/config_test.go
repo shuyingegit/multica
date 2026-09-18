@@ -16,7 +16,8 @@ func TestParseConfig_FromSettings(t *testing.T) {
 	raw := []byte(`{
 		"task_notify": {
 			"wechat_url": {"enabled": true, "url": " https://wx.example/send "},
-			"clawbot": {"enabled": true, "token": " tok "}
+			"clawbot": {"enabled": true, "token": " tok "},
+			"app_base_url": " https://browser.example:4/ "
 		}
 	}`)
 	cfg := notify.ParseConfig(raw, "")
@@ -25,6 +26,9 @@ func TestParseConfig_FromSettings(t *testing.T) {
 	}
 	if !cfg.Clawbot.Enabled || cfg.Clawbot.Token != "tok" {
 		t.Fatalf("clawbot: %+v", cfg.Clawbot)
+	}
+	if cfg.AppBaseURL != "https://browser.example:4" {
+		t.Fatalf("app_base_url: %q", cfg.AppBaseURL)
 	}
 }
 
@@ -93,5 +97,26 @@ func TestClawbotConstants(t *testing.T) {
 	}
 	if notify.ClawbotChannelID != "clawbot" {
 		t.Fatalf("channel %s", notify.ClawbotChannelID)
+	}
+}
+
+func TestResolveAppBaseURL(t *testing.T) {
+	got := notify.ResolveAppBaseURL("https://browser.example:4", "http://localhost:3005")
+	if got != "https://browser.example:4" {
+		t.Fatalf("prefer browser stamp, got %q", got)
+	}
+	got = notify.ResolveAppBaseURL("http://localhost:3005", "https://public.example")
+	if got != "https://public.example" {
+		t.Fatalf("prefer non-loopback env, got %q", got)
+	}
+	got = notify.ResolveAppBaseURL("", "http://127.0.0.1:3005")
+	if got != "http://127.0.0.1:3005" {
+		t.Fatalf("last-resort loopback, got %q", got)
+	}
+	if !notify.IsLoopbackBaseURL("http://localhost:3005") {
+		t.Fatal("expected loopback")
+	}
+	if notify.IsLoopbackBaseURL("https://app.example:4") {
+		t.Fatal("expected non-loopback")
 	}
 }

@@ -86,10 +86,12 @@ func handleTaskNotify(
 		return
 	}
 
-	channels := notify.ActiveChannels(notify.ParseConfig(ws.Settings, envFallbackURL))
+	cfg := notify.ParseConfig(ws.Settings, envFallbackURL)
+	channels := notify.ActiveChannels(cfg)
 	if len(channels) == 0 {
 		return
 	}
+	resolvedBase := notify.ResolveAppBaseURL(cfg.AppBaseURL, appBaseURL)
 
 	identifier := service.IssueIdentifier(ws.IssuePrefix, issue.Number)
 	agentName := lookupAgentName(ctx, queries, agentID)
@@ -99,7 +101,7 @@ func handleTaskNotify(
 	case "completed":
 		title = identifier + " ✓ 完成"
 		reply := latestAgentReply(ctx, queries, issue, taskID)
-		content = buildCompletedContent(issue.Title, agentName, reply.Snippet, appBaseURL, ws.Slug, identifier, reply.CommentID)
+		content = buildCompletedContent(issue.Title, agentName, reply.Snippet, resolvedBase, ws.Slug, identifier, reply.CommentID)
 	default:
 		title = identifier + " ✗ 失败"
 		errText, _ := payload["error"].(string)
@@ -109,7 +111,7 @@ func handleTaskNotify(
 		// Prefer anchoring on the newest agent/system note for this task when
 		// present so the push opens at the failure message, not the issue top.
 		reply := latestAgentReply(ctx, queries, issue, taskID)
-		content = buildFailedContent(issue.Title, agentName, errText, appBaseURL, ws.Slug, identifier, reply.CommentID)
+		content = buildFailedContent(issue.Title, agentName, errText, resolvedBase, ws.Slug, identifier, reply.CommentID)
 	}
 
 	msg := notify.Message{Title: title, Content: content}

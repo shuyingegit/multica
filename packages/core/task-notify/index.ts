@@ -5,6 +5,8 @@ export {
   deriveTaskNotifySettings,
   isTaskNotifyConnected,
   mergeTaskNotifySettings,
+  isLoopbackAppBaseUrl,
+  browserAppBaseUrl,
   type TaskNotifySettings,
   type WechatUrlChannelConfig,
   type ClawbotChannelConfig,

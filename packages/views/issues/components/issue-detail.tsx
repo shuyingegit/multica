@@ -3560,6 +3560,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         </Sheet>
         <IssuePublicShareDialog
           issueId={issue.id}
+          issueTitle={issue.title}
+          issueIdentifier={issue.identifier}
           open={publicShareOpen}
           onOpenChange={setPublicShareOpen}
         />
@@ -3593,6 +3595,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     </ResizablePanelGroup>
     <IssuePublicShareDialog
       issueId={issue.id}
+      issueTitle={issue.title}
+      issueIdentifier={issue.identifier}
       open={publicShareOpen}
       onOpenChange={setPublicShareOpen}
     />

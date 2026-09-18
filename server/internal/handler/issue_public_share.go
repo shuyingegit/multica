@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	guestCommentPrefix = "【外部访客】\n"
+	guestCommentPrefix = "【外部访客】"
 	shareAccessCookie  = "multica_issue_share"
 	shareAccessTTL     = 7 * 24 * time.Hour
 )
@@ -207,6 +207,7 @@ func (h *Handler) GetPublicIssueShareMeta(w http.ResponseWriter, r *http.Request
 	}
 	unlocked := share.AuthMode == "none" || h.publicShareUnlocked(r, share)
 	identifier := service.IssueIdentifier(ws.IssuePrefix, issue.Number)
+	assigneeName, assigneeType := h.publicShareAssignee(r, issue)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"code":           share.Code,
 		"auth_mode":      share.AuthMode,
@@ -215,6 +216,8 @@ func (h *Handler) GetPublicIssueShareMeta(w http.ResponseWriter, r *http.Request
 		"title":          issue.Title,
 		"identifier":     identifier,
 		"cutoff_at":      share.CutoffAt.UTC().Format(time.RFC3339Nano),
+		"assignee_name":  assigneeName,
+		"assignee_type":  assigneeType,
 	})
 }
 
@@ -274,21 +277,28 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 	}
 	items := make([]map[string]any, 0, len(comments))
 	for _, c := range comments {
+		guestNick, guestLoc, isGuest := parseGuestMeta(c.Content)
+		authorName := h.publicShareAuthorName(r, c.AuthorType, c.AuthorID.String(), guestNick, isGuest)
 		items = append(items, map[string]any{
-			"id":          c.ID.String(),
-			"author_type": c.AuthorType,
-			"author_id":   c.AuthorID.String(),
-			"content":     c.Content,
-			"type":        c.Type,
-			"created_at":  c.CreatedAt.UTC().Format(time.RFC3339Nano),
-			"is_guest":    strings.HasPrefix(c.Content, guestCommentPrefix),
+			"id":             c.ID.String(),
+			"author_type":    c.AuthorType,
+			"author_id":      c.AuthorID.String(),
+			"author_name":    authorName,
+			"content":        c.Content,
+			"type":           c.Type,
+			"created_at":     c.CreatedAt.UTC().Format(time.RFC3339Nano),
+			"is_guest":       isGuest,
+			"guest_nickname": guestNick,
+			"guest_location": guestLoc,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"comments": items})
 }
 
 type publicIssueCommentRequest struct {
-	Content string `json:"content"`
+	Content  string `json:"content"`
+	Nickname string `json:"nickname,omitempty"`
+	Location string `json:"location,omitempty"`
 }
 
 // CreatePublicIssueShareComment — POST /api/public/issue-shares/{code}/comments
@@ -311,8 +321,13 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
+	nickname := strings.TrimSpace(req.Nickname)
+	if nickname == "" {
+		writeError(w, http.StatusBadRequest, "nickname is required")
+		return
+	}
 	if !strings.HasPrefix(content, guestCommentPrefix) {
-		content = guestCommentPrefix + content
+		content = formatGuestCommentBody(nickname, strings.TrimSpace(req.Location), content)
 	}
 
 	authorID := share.CreatedBy.String()
@@ -347,12 +362,112 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 
 	_ = h.triggerTasksForComment(r.Context(), issue, comment, nil, "member", authorID, authorID, nil)
 
+	guestNick, guestLoc, _ := parseGuestMeta(comment.Content)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":         uuidToString(comment.ID),
-		"content":    comment.Content,
-		"created_at": comment.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
-		"is_guest":   true,
+		"id":             uuidToString(comment.ID),
+		"content":        comment.Content,
+		"created_at":     comment.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		"is_guest":       true,
+		"author_name":    guestNick,
+		"guest_nickname": guestNick,
+		"guest_location": guestLoc,
 	})
+}
+
+func formatGuestCommentBody(nickname, location, body string) string {
+	var b strings.Builder
+	b.WriteString(guestCommentPrefix)
+	if nickname != "" {
+		b.WriteString("·")
+		b.WriteString(nickname)
+	}
+	b.WriteString("\n")
+	if location != "" {
+		b.WriteString("📍")
+		b.WriteString(location)
+		b.WriteString("\n")
+	}
+	b.WriteString(body)
+	return b.String()
+}
+
+// parseGuestMeta extracts nickname/location from guest comment prefix.
+func parseGuestMeta(content string) (nickname, location string, isGuest bool) {
+	if !strings.HasPrefix(content, guestCommentPrefix) {
+		return "", "", false
+	}
+	isGuest = true
+	rest := content[len(guestCommentPrefix):]
+	if strings.HasPrefix(rest, "·") {
+		rest = rest[len("·"):]
+		nl := strings.IndexByte(rest, '\n')
+		if nl < 0 {
+			return strings.TrimSpace(rest), "", true
+		}
+		nickname = strings.TrimSpace(rest[:nl])
+		rest = rest[nl+1:]
+	} else if strings.HasPrefix(rest, "\n") {
+		rest = rest[1:]
+	}
+	if strings.HasPrefix(rest, "📍") {
+		lineEnd := strings.IndexByte(rest, '\n')
+		if lineEnd < 0 {
+			location = strings.TrimSpace(rest[len("📍"):])
+			return nickname, location, true
+		}
+		location = strings.TrimSpace(rest[len("📍"):lineEnd])
+	}
+	return nickname, location, true
+}
+
+func (h *Handler) publicShareAuthorName(r *http.Request, authorType, authorID, guestNick string, isGuest bool) string {
+	if isGuest {
+		if guestNick != "" {
+			return guestNick
+		}
+		return "访客"
+	}
+	switch authorType {
+	case "agent":
+		if a, err := h.Queries.GetAgent(r.Context(), parseUUID(authorID)); err == nil && a.Name != "" {
+			return a.Name
+		}
+		return "智能体"
+	case "member":
+		if u, err := h.Queries.GetUser(r.Context(), parseUUID(authorID)); err == nil {
+			if u.Name != "" {
+				return u.Name
+			}
+			if u.Email != "" {
+				return u.Email
+			}
+		}
+		return "团队"
+	default:
+		return authorType
+	}
+}
+
+func (h *Handler) publicShareAssignee(r *http.Request, issue db.Issue) (name string, typ string) {
+	if !issue.AssigneeType.Valid || !issue.AssigneeID.Valid {
+		return "", ""
+	}
+	typ = issue.AssigneeType.String
+	id := uuidToString(issue.AssigneeID)
+	switch typ {
+	case "agent":
+		if a, err := h.Queries.GetAgent(r.Context(), parseUUID(id)); err == nil {
+			return a.Name, typ
+		}
+	case "member":
+		if u, err := h.Queries.GetUser(r.Context(), parseUUID(id)); err == nil {
+			if u.Name != "" {
+				return u.Name, typ
+			}
+			return u.Email, typ
+		}
+	}
+	return "", typ
 }
 
 func (h *Handler) loadPublicIssueShare(w http.ResponseWriter, r *http.Request, code string) (*issueshare.Share, db.Issue, db.Workspace, bool) {

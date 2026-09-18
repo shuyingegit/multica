@@ -1,8 +1,15 @@
 export {
   buildPublicIssueShareURL,
+  buildPublicIssueShareClipboardText,
   stripGuestPrefix,
+  parseGuestComment,
+  formatGuestCommentPayload,
+  formatShareRelativeTime,
+  loadGuestProfile,
+  saveGuestProfile,
   type IssuePublicShare,
   type IssuePublicShareAuthMode,
   type IssuePublicShareMeta,
   type PublicShareComment,
+  type PublicShareGuestProfile,
 } from "./types";

@@ -16,6 +16,7 @@ import {
 } from "@multica/ui/components/ui/dialog";
 import { api } from "@multica/core/api";
 import {
+  buildPublicIssueShareClipboardText,
   buildPublicIssueShareURL,
   type IssuePublicShare,
   type IssuePublicShareAuthMode,
@@ -23,10 +24,14 @@ import {
 
 export function IssuePublicShareDialog({
   issueId,
+  issueTitle,
+  issueIdentifier,
   open,
   onOpenChange,
 }: {
   issueId: string;
+  issueTitle?: string;
+  issueIdentifier?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -34,6 +39,8 @@ export function IssuePublicShareDialog({
   const [share, setShare] = useState<IssuePublicShare | null>(null);
   const [authMode, setAuthMode] = useState<IssuePublicShareAuthMode>("none");
   const [password, setPassword] = useState("");
+  /** Last password typed this session — needed for clipboard (hash is not reversible). */
+  const [clipboardPassword, setClipboardPassword] = useState("");
 
   useEffect(() => {
     if (!open || !issueId) return;
@@ -70,6 +77,11 @@ export function IssuePublicShareDialog({
         ...(authMode === "password" ? { password } : {}),
       });
       setShare(next);
+      if (authMode === "password" && password.trim()) {
+        setClipboardPassword(password.trim());
+      } else if (authMode === "none") {
+        setClipboardPassword("");
+      }
       setPassword("");
       toast.success("对外分享已开启");
     } catch (e) {
@@ -84,6 +96,7 @@ export function IssuePublicShareDialog({
     try {
       await api.revokeIssuePublicShare(issueId);
       setShare(null);
+      setClipboardPassword("");
       toast.success("已关闭对外分享");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "关闭失败");
@@ -95,9 +108,23 @@ export function IssuePublicShareDialog({
   async function copyLink() {
     if (!share) return;
     const url = buildPublicIssueShareURL(share.path);
+    const pw =
+      authMode === "password"
+        ? clipboardPassword || password.trim() || undefined
+        : undefined;
+    if (authMode === "password" && !pw) {
+      toast.error("请先输入密码再复制（密码不会从服务器回传）");
+      return;
+    }
+    const text = buildPublicIssueShareClipboardText({
+      title: issueTitle || share.code,
+      identifier: issueIdentifier,
+      url,
+      password: pw,
+    });
     try {
-      await navigator.clipboard.writeText(url);
-      toast.success("链接已复制");
+      await navigator.clipboard.writeText(text);
+      toast.success(pw ? "已复制标题、链接和密码" : "已复制标题和链接");
     } catch {
       toast.error("复制失败");
     }
@@ -147,7 +174,11 @@ export function IssuePublicShareDialog({
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={share?.auth_mode === "password" ? "留空则保持原密码（需重新输入以更新）" : "设置访问密码"}
+                placeholder={
+                  share?.auth_mode === "password"
+                    ? "留空则保持原密码；复制链接前请再填一次以便附带密码"
+                    : "设置访问密码"
+                }
               />
             </div>
           ) : null}
@@ -161,6 +192,10 @@ export function IssuePublicShareDialog({
                   <Copy className="size-4" />
                 </Button>
               </div>
+              <p className="text-caption text-muted-foreground">
+                复制内容含票号/标题与链接
+                {authMode === "password" ? "，有密码时一并附上" : ""}。
+              </p>
             </div>
           ) : null}
         </div>
@@ -173,7 +208,12 @@ export function IssuePublicShareDialog({
           ) : null}
           <Button
             type="button"
-            disabled={loading || (authMode === "password" && !share && password.length < 4)}
+            disabled={
+              loading ||
+              (authMode === "password" &&
+                password.length < 4 &&
+                !(share?.auth_mode === "password"))
+            }
             onClick={() => void enableOrUpdate()}
           >
             <Link2 className="mr-1.5 size-4" />

@@ -730,26 +730,55 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     setLocalPinnedWsId(wsId ?? null);
   }, [wsId]);
   const visiblePinned = localPinnedWsId === (wsId ?? null) ? localPinned : EMPTY_PINS;
-  const pinsExpanded = expandedPinsWorkspaceId === wsId;
-  const displayedPinned = pinsExpanded ? visiblePinned : visiblePinned.slice(0, PINNED_PREVIEW_LIMIT);
-  // Subscribe to every displayed issue pin's detail so identifier-based
-  // active matching re-renders when the cache fills (getQueryData alone
-  // would leave "Issues" lit until an unrelated parent update).
-  const displayedIssuePins = displayedPinned.filter((pin) => pin.item_type === "issue");
-  const pinnedIssueDetails = useQueries({
-    queries: displayedIssuePins.map((pin) => ({
+  // Fetch issue details for ALL issue pins (not only the preview slice) so we
+  // can sort by recent activity before applying the 5-item preview limit.
+  const allIssuePins = React.useMemo(
+    () => visiblePinned.filter((pin) => pin.item_type === "issue"),
+    [visiblePinned],
+  );
+  const allPinnedIssueDetails = useQueries({
+    queries: allIssuePins.map((pin) => ({
       ...issueDetailOptions(wsId ?? "", pin.item_id),
       enabled: !!wsId,
     })),
   });
+  const activityByIssueId = React.useMemo(() => {
+    const map = new Map<string, number>();
+    allIssuePins.forEach((pin, index) => {
+      const issue = allPinnedIssueDetails[index]?.data;
+      const raw = issue?.last_activity_at || issue?.updated_at || pin.created_at;
+      const t = raw ? Date.parse(raw) : 0;
+      map.set(pin.item_id, Number.isFinite(t) ? t : 0);
+    });
+    return map;
+  }, [allIssuePins, allPinnedIssueDetails]);
+  // Recent activity first; custom pin.position as tiebreaker among peers.
+  const activitySortedPinned = React.useMemo(() => {
+    return [...visiblePinned].sort((a, b) => {
+      const actA =
+        a.item_type === "issue" ? (activityByIssueId.get(a.item_id) ?? 0) : Date.parse(a.created_at) || 0;
+      const actB =
+        b.item_type === "issue" ? (activityByIssueId.get(b.item_id) ?? 0) : Date.parse(b.created_at) || 0;
+      if (actA !== actB) return actB - actA;
+      return (a.position ?? 0) - (b.position ?? 0);
+    });
+  }, [visiblePinned, activityByIssueId]);
+  const pinsExpanded = expandedPinsWorkspaceId === wsId;
+  const displayedPinned = pinsExpanded
+    ? activitySortedPinned
+    : activitySortedPinned.slice(0, PINNED_PREVIEW_LIMIT);
+  // Subscribe to every displayed issue pin's detail so identifier-based
+  // active matching re-renders when the cache fills (getQueryData alone
+  // would leave "Issues" lit until an unrelated parent update).
+  const displayedIssuePins = displayedPinned.filter((pin) => pin.item_type === "issue");
   const pinnedIssueById = React.useMemo(() => {
     const map = new Map<string, Issue>();
-    displayedIssuePins.forEach((pin, index) => {
-      const data = pinnedIssueDetails[index]?.data;
+    allIssuePins.forEach((pin, index) => {
+      const data = allPinnedIssueDetails[index]?.data;
       if (data) map.set(pin.item_id, data);
     });
     return map;
-  }, [displayedIssuePins, pinnedIssueDetails]);
+  }, [allIssuePins, allPinnedIssueDetails]);
 
   // Pin unread baseline: every visible issue pin starts "read" for this tab
   // session. Entering a pin clears its badge; replies bump even while open

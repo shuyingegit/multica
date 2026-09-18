@@ -113,6 +113,22 @@ describe("useCanonicalIssue", () => {
     expect(getIssue).toHaveBeenCalledTimes(1);
   });
 
+  it("opens a previously cached issue by identifier without a resolve skeleton", async () => {
+    qc.setQueryData(issueKeys.detail("ws-1", ISSUE_UUID), issue);
+
+    const { result } = renderHook(() => useCanonicalIssue("ws-1", "TRS-134"), {
+      wrapper: createWrapper(qc),
+    });
+
+    // First paint: cache hit → not resolving, UUID known.
+    expect(result.current.isResolving).toBe(false);
+    expect(result.current.canonicalId).toBe(ISSUE_UUID);
+    expect(result.current.issue).toEqual(issue);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(getIssue).not.toHaveBeenCalled();
+  });
+
   it("opens an identifier URL with exactly one request", async () => {
     const { result } = renderHook(() => useCanonicalIssue("ws-1", "TRS-134"), {
       wrapper: createWrapper(qc),

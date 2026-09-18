@@ -8,6 +8,8 @@
  */
 import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { act, render } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 const router = vi.hoisted(() => ({
   push: vi.fn(),
@@ -22,8 +24,21 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@multica/core/paths", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@multica/core/paths")>();
+  return {
+    ...actual,
+    useCurrentWorkspace: () => null,
+  };
+});
+
 import { WebNavigationProvider } from "./navigation";
 import { useNavigation, type NavigationAdapter } from "@multica/views/navigation";
+
+function wrap(ui: ReactNode) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={qc}>{ui}</QueryClientProvider>;
+}
 
 function navigate(path: string) {
   window.dispatchEvent(
@@ -38,9 +53,11 @@ function renderAdapter(): () => NavigationAdapter {
     return null;
   }
   render(
-    <WebNavigationProvider>
-      <Probe />
-    </WebNavigationProvider>,
+    wrap(
+      <WebNavigationProvider>
+        <Probe />
+      </WebNavigationProvider>,
+    ),
   );
   return () => adapter!;
 }
@@ -51,7 +68,7 @@ beforeEach(() => {
 
 describe("WebNavigationProvider internal link bridge", () => {
   it("pushes the path a content link resolved to", () => {
-    render(<WebNavigationProvider>{null}</WebNavigationProvider>);
+    render(wrap(<WebNavigationProvider>{null}</WebNavigationProvider>));
 
     navigate("/acme/issues/MUL-1");
 
@@ -59,7 +76,7 @@ describe("WebNavigationProvider internal link bridge", () => {
   });
 
   it("ignores an event without a path", () => {
-    render(<WebNavigationProvider>{null}</WebNavigationProvider>);
+    render(wrap(<WebNavigationProvider>{null}</WebNavigationProvider>));
 
     window.dispatchEvent(new CustomEvent("multica:navigate", { detail: {} }));
 
@@ -68,7 +85,7 @@ describe("WebNavigationProvider internal link bridge", () => {
 
   it("stops listening once unmounted", () => {
     const { unmount } = render(
-      <WebNavigationProvider>{null}</WebNavigationProvider>,
+      wrap(<WebNavigationProvider>{null}</WebNavigationProvider>),
     );
 
     unmount();

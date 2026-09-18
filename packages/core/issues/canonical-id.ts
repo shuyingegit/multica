@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Issue } from "../types";
+import { findCachedIssueByIdentifier, mirrorIssueDetailCache } from "./prefetch";
 import { issueDetailOptions, issueKeys } from "./queries";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,15 +51,29 @@ export interface CanonicalIssue {
  * canonical query never observes an empty cache and never fires a fetch of its
  * own. Seeding the cache from an effect instead would run after that decision
  * and leave the single-request property resting on hook ordering.
+ *
+ * Reopen path (fork): when the address bar already shows the identifier but
+ * the UUID-keyed detail is still in the QueryClient from a prior visit,
+ * `findCachedIssueByIdentifier` supplies `initialData` so `isResolving` is
+ * false on the first paint — no full-page skeleton for an issue the tab
+ * already loaded.
  */
 export function useCanonicalIssue(wsId: string, routeId: string): CanonicalIssue {
   const qc = useQueryClient();
   const isUuid = isIssueUuid(routeId);
   const resolveEnabled = !isUuid && !!wsId && !!routeId;
 
+  // Sync cache lookup (no setState): reopen-via-identifier must not wait on
+  // a network round-trip when the UUID entry is already warm.
+  const cachedForIdentifier = useMemo(() => {
+    if (!resolveEnabled) return undefined;
+    return findCachedIssueByIdentifier(qc, wsId, routeId);
+  }, [qc, resolveEnabled, routeId, wsId]);
+
   const resolve = useQuery({
     ...issueDetailOptions(wsId, routeId),
     enabled: resolveEnabled,
+    initialData: cachedForIdentifier,
   });
 
   const canonicalId = isUuid ? routeId : (resolve.data?.id ?? null);
@@ -84,12 +99,9 @@ export function useCanonicalIssue(wsId: string, routeId: string): CanonicalIssue
   const loadedIdentifier = detail.data?.identifier;
   const loadedIssue = detail.data;
   useEffect(() => {
-    if (!loadedIssue || !loadedIdentifier || loadedIdentifier === routeId) return;
-    qc.setQueryData<Issue>(
-      issueKeys.detail(wsId, loadedIdentifier),
-      (old) => old ?? loadedIssue,
-    );
-  }, [qc, wsId, loadedIdentifier, loadedIssue, routeId]);
+    if (!loadedIssue || !wsId) return;
+    mirrorIssueDetailCache(qc, wsId, loadedIssue);
+  }, [qc, wsId, loadedIdentifier, loadedIssue]);
 
   // Read the resolution query's own settled state rather than "pending and no
   // data": a failed resolution must present as terminally not-found, never as
@@ -100,6 +112,7 @@ export function useCanonicalIssue(wsId: string, routeId: string): CanonicalIssue
   return {
     canonicalId,
     issue: detail.data,
+    // Cached reopen: initialData makes resolve.data defined on first paint.
     isResolving: resolveEnabled && !failed && resolve.data === undefined,
     notFound: failed,
   };

@@ -2,10 +2,16 @@
 
 import { Suspense, useEffect, useSyncExternalStore } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   NavigationProvider,
   type NavigationAdapter,
 } from "@multica/views/navigation";
+import { useCurrentWorkspace } from "@multica/core/paths";
+import {
+  issueSegmentFromPath,
+  prefetchIssueNavigation,
+} from "@multica/core/issues/prefetch";
 import { canGoBackInApp } from "./in-app-history";
 
 /**
@@ -68,6 +74,9 @@ function NavigationProviderInner({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const qc = useQueryClient();
+  const workspace = useCurrentWorkspace();
+  const wsId = workspace?.id;
   const hash = useSyncExternalStore(
     subscribeToHash,
     () => window.location.hash,
@@ -89,8 +98,14 @@ function NavigationProviderInner({
     // router.prefetch is a no-op in dev mode by Next.js design; in production
     // it warms the RSC payload + route chunk so the next push() commits with
     // no network round-trip. Safe to call repeatedly — Next dedupes internally.
+    // Additionally warm issue detail + timeline so pin/list hover opens feel
+    // instant when the user actually clicks.
     prefetch: (path: string) => {
       router.prefetch(path);
+      const segment = issueSegmentFromPath(path);
+      if (segment && wsId) {
+        prefetchIssueNavigation(qc, wsId, segment);
+      }
     },
   };
 

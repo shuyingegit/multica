@@ -83,9 +83,9 @@ import {
 } from "@multica/core/pins";
 import {
   issueDetailOptions,
-  issueKeys,
   issueTimelineOptions,
 } from "@multica/core/issues/queries";
+import { mirrorIssueDetailCache } from "@multica/core/issues/prefetch";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useWSEvent } from "@multica/core/realtime";
@@ -765,10 +765,11 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   useEffect(() => {
     if (!wsId) return;
     for (const issue of pinnedIssueById.values()) {
-      if (issue.identifier && issue.identifier !== issue.id) {
-        queryClient.setQueryData<Issue>(
-          issueKeys.detail(wsId, issue.identifier),
-          (old) => old ?? issue,
+      mirrorIssueDetailCache(queryClient, wsId, issue);
+      void queryClient.prefetchQuery(issueDetailOptions(wsId, issue.id));
+      if (issue.identifier) {
+        void queryClient.prefetchQuery(
+          issueDetailOptions(wsId, issue.identifier),
         );
       }
       void queryClient.prefetchQuery(issueTimelineOptions(issue.id));

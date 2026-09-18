@@ -96,14 +96,14 @@ import { QuickActionsSection } from "./quick-actions-section";
 import { PluginPanelSection } from "../../plugins";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useRecentContextStore } from "@multica/core/chat";
 import { useModalStore } from "@multica/core/modals";
-import { issueListOptions, issueDetailOptions, childIssuesOptions, childIssueProgressOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
+import { issueListOptions, issueDetailOptions, issueKeys, childIssuesOptions, childIssueProgressOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
@@ -1147,6 +1147,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const locale = useLocale();
   const timeAgo = useTimeAgo();
   const id = issueId;
+  const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const paths = useWorkspacePaths();
   const openModal = useModalStore((state) => state.open);
@@ -1363,12 +1364,17 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // list row must not masquerade as a hydrated issue detail.
   const { data: issue = null, isLoading: issueLoading, refetch: refetchIssue } = useQuery({
     ...issueDetailOptions(wsId, id),
-    // List rows and issue-created realtime payloads intentionally omit the
-    // detail-only source-context snapshot. They can still seed this query via
-    // initialData, so always reconcile with the authoritative detail endpoint
-    // when the detail view mounts. Without this, the global Infinity staleTime
-    // hides source context until a full page refresh.
-    refetchOnMount: "always",
+    // Do NOT refetchOnMount: "always" — that forced a full getIssue on every
+    // pin/list switch even when the tab already held a complete detail, which
+    // felt like 8–10s cold opens. Trust the QueryClient + WS invalidation;
+    // reconcile source_context only when the cached row still looks list-shaped.
+    refetchOnMount: (query) => {
+      const cached = query.state.data as { description?: string | null; source_context?: unknown } | undefined;
+      if (!cached) return true;
+      // List-shaped seed slipped through — need the authoritative detail.
+      if (cached.description == null) return true;
+      return false;
+    },
     initialData: () => {
       const cached = allIssues.find((i) => i.id === id);
       return cached?.description != null ? cached : undefined;
@@ -1766,7 +1772,14 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const {
     reactions: issueReactions,
     toggleReaction: handleToggleIssueReaction,
-  } = useIssueReactions(id, user?.id);
+  } = useIssueReactions(id, user?.id, issue?.reactions);
+
+  // Seed the reactions query from the detail payload so we do not fire a
+  // second getIssue just for emoji state on every reopen.
+  useEffect(() => {
+    if (!issue) return;
+    qc.setQueryData(issueKeys.reactions(id), issue.reactions ?? []);
+  }, [qc, id, issue]);
 
   const {
     subscribers, isSubscribed, subscriptionReason, subscriptionKnown,

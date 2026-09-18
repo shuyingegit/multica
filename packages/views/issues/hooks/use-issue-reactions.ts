@@ -11,11 +11,19 @@ import { issueReactionsOptions, issueKeys } from "@multica/core/issues/queries";
 import { useToggleIssueReaction, type ToggleIssueReactionVars } from "@multica/core/issues/mutations";
 import { useWSEvent, useWSReconnect } from "@multica/core/realtime";
 
-export function useIssueReactions(issueId: string, userId?: string) {
+export function useIssueReactions(
+  issueId: string,
+  userId?: string,
+  /** Reactions already present on the issue detail payload — avoids a second getIssue. */
+  seedReactions?: IssueReaction[],
+) {
   const qc = useQueryClient();
-  const { data: serverReactions = [], isLoading: loading } = useQuery(
-    issueReactionsOptions(issueId),
-  );
+  const { data: serverReactions = [], isLoading: loading } = useQuery({
+    ...issueReactionsOptions(issueId),
+    initialData: seedReactions,
+    // Detail already carried reactions — do not refetch getIssue on mount.
+    refetchOnMount: seedReactions !== undefined ? false : true,
+  });
 
   const toggleMutation = useToggleIssueReaction(issueId);
 

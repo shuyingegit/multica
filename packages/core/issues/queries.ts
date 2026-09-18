@@ -434,6 +434,9 @@ export function issueDetailOptions(wsId: string, id: string) {
   return queryOptions({
     queryKey: issueKeys.detail(wsId, id),
     queryFn: () => api.getIssue(id),
+    // Keep recently opened issues warm across pin A↔B↔C switches. Global
+    // gcTime is 10m; issue reopen within a work session should not cold-start.
+    gcTime: 60 * 60_000,
   });
 }
 
@@ -583,6 +586,7 @@ export function issueTimelineOptions(issueId: string) {
   return queryOptions({
     queryKey: issueKeys.timeline(issueId),
     queryFn: () => api.listTimeline(issueId),
+    gcTime: 60 * 60_000,
   });
 }
 
@@ -593,6 +597,7 @@ export function issueReactionsOptions(issueId: string) {
       const issue = await api.getIssue(issueId);
       return issue.reactions ?? [];
     },
+    gcTime: 60 * 60_000,
   });
 }
 

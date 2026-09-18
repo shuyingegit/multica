@@ -78,7 +78,7 @@ import { useConfigStore } from "@multica/core/config";
 import { pinListOptions } from "@multica/core/pins/queries";
 import { useDeletePin, useReorderPins } from "@multica/core/pins/mutations";
 import {
-  formatPinRelativeAge,
+  describePinRelativeAge,
   selectPinUnreadCount,
   usePinUnreadStore,
 } from "@multica/core/pins";
@@ -380,7 +380,14 @@ function IssuePinRow({
   const unreadCount = usePinUnreadStore(selectPinUnreadCount(issueId));
   const markPinRead = usePinUnreadStore((s) => s.markRead);
   const nowMs = usePinAgeTick();
-  const ageLabel = formatPinRelativeAge(lastActivityAt, nowMs);
+  const age = describePinRelativeAge(lastActivityAt, nowMs);
+  const ageLabel = age?.label ?? null;
+  const ageToneClass =
+    age?.tone === "fresh"
+      ? "text-foreground/80"
+      : age?.tone === "recent"
+        ? "text-muted-foreground"
+        : "text-muted-foreground/40";
 
   const isRunning =
     (taskGroups?.running.length ?? 0) > 0 || (taskGroups?.queued.length ?? 0) > 0;
@@ -413,7 +420,10 @@ function IssuePinRow({
         </span>
       ) : null}
       {ageLabel ? (
-        <span className="tabular-nums" title={lastActivityAt ?? undefined}>
+        <span
+          className={cn("tabular-nums", ageToneClass)}
+          title={lastActivityAt ?? undefined}
+        >
           {ageLabel}
         </span>
       ) : null}

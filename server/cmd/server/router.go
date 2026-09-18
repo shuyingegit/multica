@@ -1424,6 +1424,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// inviter so a not-yet-logged-in visitor can see what they're joining.
 	r.Get("/api/share-links/{code}", h.GetShareLinkInfo)
 
+	// SCS fork: public issue conversation shares (no Multica login).
+	r.Get("/api/public/issue-shares/{code}", h.GetPublicIssueShareMeta)
+	r.Post("/api/public/issue-shares/{code}/unlock", h.UnlockPublicIssueShare)
+	r.Get("/api/public/issue-shares/{code}/timeline", h.ListPublicIssueShareTimeline)
+	r.Post("/api/public/issue-shares/{code}/comments", h.CreatePublicIssueShareComment)
+
 	// Webhook ingress for autopilots. Outside the authenticated group on
 	// purpose: the bearer token in the URL path IS the credential. Workspace
 	// context is derived from the trigger row, never from request headers.
@@ -1921,6 +1927,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/comments/trigger-preview", h.PreviewCommentTriggers)
 					r.Post("/comments", h.CreateComment)
 					r.Get("/comments", h.ListComments)
+					r.Get("/public-share", h.GetIssuePublicShare)
+					r.Post("/public-share", h.UpsertIssuePublicShare)
+					r.Delete("/public-share", h.RevokeIssuePublicShare)
 					r.Get("/timeline", h.ListTimeline)
 					r.Get("/subscribers", h.ListIssueSubscribers)
 					r.Post("/subscribe", h.SubscribeToIssue)

@@ -27,6 +27,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Share2,
   SlidersHorizontal,
   Tag,
   Unlink,
@@ -137,6 +138,7 @@ import { cn } from "@multica/ui/lib/utils";
 import { PAGE_GUTTER } from "../../layout/page-header";
 
 import { ProgressRing } from "./progress-ring";
+import { IssuePublicShareDialog } from "./issue-public-share-dialog";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { useT } from "../../i18n";
 import { useIssueDetailScrollRestore } from "../hooks/use-issue-detail-scroll-restore";
@@ -1228,6 +1230,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // popover would stay open behind the newly auto-opened picker — two
   // popovers stacked. We close it explicitly in `addOptionalProp`.
   const [addPropPopoverOpen, setAddPropPopoverOpen] = useState(false);
+  const [publicShareOpen, setPublicShareOpen] = useState(false);
   // Virtuoso's `customScrollParent` wants the HTMLElement, not a ref. A plain
   // `useRef.current` does not trigger a re-render when it populates, so the
   // Virtuoso prop would never receive the element. Callback ref + state fixes
@@ -2872,6 +2875,21 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               />
               <TooltipContent side="bottom">{actions.isPinned ? t(($) => $.detail.unpin_tooltip) : t(($) => $.detail.pin_tooltip)}</TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground"
+                    onClick={() => setPublicShareOpen(true)}
+                  >
+                    <Share2 />
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">对外对话</TooltipContent>
+            </Tooltip>
             <IssueActionsDropdown
               issue={issue}
               align="end"
@@ -3540,11 +3558,17 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             {sidebarContent}
           </SheetContent>
         </Sheet>
+        <IssuePublicShareDialog
+          issueId={issue.id}
+          open={publicShareOpen}
+          onOpenChange={setPublicShareOpen}
+        />
       </div>
     );
   }
 
   return (
+    <>
     <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
       <ResizablePanel id="content" minSize="50%">
         {detailContent}
@@ -3567,5 +3591,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         </AnimatedRightSidebar>
       </ResizablePanel>
     </ResizablePanelGroup>
+    <IssuePublicShareDialog
+      issueId={issue.id}
+      open={publicShareOpen}
+      onOpenChange={setPublicShareOpen}
+    />
+    </>
   );
 }

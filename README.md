@@ -51,7 +51,18 @@
 - 深链可选：`MULTICA_TASK_NOTIFY_APP_URL` / `MULTICA_PUBLIC_URL`（拼 issue 链接）
 - 实现：`server/internal/notify` + `task_notify_listener`；前端 `task-notify-tab`
 
-### 5. 部署约定与快速发布
+### 6. Issue 对外对话分享
+
+工作区成员可在 Issue 详情点「对外对话」（分享图标）：
+
+- **免密** 或 **简单密码**
+- 公网地址：`{当前站点 origin}/p/i/{code}`
+- 访客只看到 **开启分享之后** 的对话；提问写入本票（前缀 `【外部访客】`），智能体仍带整张票上下文回答；开启后内网/外网发言一并同步到公网
+- 关闭分享后链接失效
+
+实现：`server/migrations/500_public_conversation_share`、`server/internal/issueshare`、`/api/public/issue-shares/*`、公网页 `apps/web/app/p/i/[code]`。
+
+Chat 会话级分享表已预留（`chat_session_public_share`），入口与页面下一迭代对齐同一模型。
 
 | 项 | 约定 |
 |---|---|

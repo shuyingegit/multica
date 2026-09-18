@@ -1,0 +1,206 @@
+// Package issueshare stores SCS-fork public conversation shares for issues
+// (and helpers shared with chat session shares).
+package issueshare
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+type DB interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+type Share struct {
+	ID           uuid.UUID
+	WorkspaceID  uuid.UUID
+	IssueID      uuid.UUID
+	Code         string
+	AuthMode     string // none | password
+	PasswordHash string
+	CutoffAt     time.Time
+	CreatedBy    uuid.UUID
+	IsActive     bool
+	CreatedAt    time.Time
+}
+
+func NewCode() (string, error) {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// HashPassword stores a simple keyed hash (not a login password store).
+func HashPassword(secret, password string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(password))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func CheckPassword(secret, password, hash string) bool {
+	if hash == "" || password == "" {
+		return false
+	}
+	want, err := hex.DecodeString(hash)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(password))
+	return hmac.Equal(mac.Sum(nil), want)
+}
+
+// Issue access token: code|exp unix, HMAC signed, base64url.
+func MintAccessToken(secret, code string, ttl time.Duration) string {
+	exp := time.Now().Add(ttl).Unix()
+	payload := fmt.Sprintf("%s|%d", code, exp)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(payload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return base64.RawURLEncoding.EncodeToString([]byte(payload + "|" + sig))
+}
+
+func VerifyAccessToken(secret, code, token string) bool {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(string(raw), "|")
+	if len(parts) != 3 {
+		return false
+	}
+	if parts[0] != code {
+		return false
+	}
+	var exp int64
+	if _, err := fmt.Sscanf(parts[1], "%d", &exp); err != nil {
+		return false
+	}
+	if time.Now().Unix() > exp {
+		return false
+	}
+	payload := parts[0] + "|" + parts[1]
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(payload))
+	want := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(want), []byte(parts[2]))
+}
+
+func GetActiveByIssue(ctx context.Context, db DB, issueID uuid.UUID) (*Share, error) {
+	row := db.QueryRow(ctx, `
+		SELECT id, workspace_id, issue_id, code, auth_mode, COALESCE(password_hash, ''),
+		       cutoff_at, created_by, is_active, created_at
+		FROM issue_public_share
+		WHERE issue_id = $1 AND is_active = true
+		LIMIT 1`, issueID)
+	return scanShare(row)
+}
+
+func GetActiveByCode(ctx context.Context, db DB, code string) (*Share, error) {
+	row := db.QueryRow(ctx, `
+		SELECT id, workspace_id, issue_id, code, auth_mode, COALESCE(password_hash, ''),
+		       cutoff_at, created_by, is_active, created_at
+		FROM issue_public_share
+		WHERE code = $1 AND is_active = true
+		LIMIT 1`, code)
+	return scanShare(row)
+}
+
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanShare(row scannable) (*Share, error) {
+	var s Share
+	err := row.Scan(
+		&s.ID, &s.WorkspaceID, &s.IssueID, &s.Code, &s.AuthMode, &s.PasswordHash,
+		&s.CutoffAt, &s.CreatedBy, &s.IsActive, &s.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func RevokeActiveForIssue(ctx context.Context, db DB, issueID uuid.UUID) error {
+	_, err := db.Exec(ctx, `
+		UPDATE issue_public_share
+		SET is_active = false, revoked_at = now()
+		WHERE issue_id = $1 AND is_active = true`, issueID)
+	return err
+}
+
+func Insert(ctx context.Context, db DB, s *Share) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO issue_public_share
+		  (id, workspace_id, issue_id, code, auth_mode, password_hash, cutoff_at, created_by, is_active, created_at)
+		VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,true,$9)`,
+		s.ID, s.WorkspaceID, s.IssueID, s.Code, s.AuthMode, s.PasswordHash,
+		s.CutoffAt, s.CreatedBy, s.CreatedAt,
+	)
+	return err
+}
+
+func UpdateAuth(ctx context.Context, db DB, id uuid.UUID, mode, hash string) error {
+	_, err := db.Exec(ctx, `
+		UPDATE issue_public_share
+		SET auth_mode = $2, password_hash = NULLIF($3, '')
+		WHERE id = $1 AND is_active = true`, id, mode, hash)
+	return err
+}
+
+type CommentRow struct {
+	ID         uuid.UUID
+	AuthorType string
+	AuthorID   uuid.UUID
+	Content    string
+	Type       string
+	CreatedAt  time.Time
+}
+
+func ListCommentsSince(ctx context.Context, db DB, issueID, workspaceID uuid.UUID, cutoff time.Time, limit int) ([]CommentRow, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := db.Query(ctx, `
+		SELECT id, author_type, author_id, content, type, created_at
+		FROM comment
+		WHERE issue_id = $1 AND workspace_id = $2
+		  AND deleted_at IS NULL
+		  AND created_at >= $3
+		  AND type IN ('comment', 'progress_update')
+		ORDER BY created_at ASC, id ASC
+		LIMIT $4`, issueID, workspaceID, cutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CommentRow
+	for rows.Next() {
+		var c CommentRow
+		if err := rows.Scan(&c.ID, &c.AuthorType, &c.AuthorID, &c.Content, &c.Type, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

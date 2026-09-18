@@ -1458,6 +1458,57 @@ export class ApiClient {
     });
   }
 
+  /** SCS fork: Issue public conversation share (member). */
+  async getIssuePublicShare(issueId: string): Promise<{ is_active: false } | import("../issue-public-share").IssuePublicShare> {
+    return this.fetch(`/api/issues/${issueId}/public-share`);
+  }
+
+  async upsertIssuePublicShare(
+    issueId: string,
+    body: { auth_mode: "none" | "password"; password?: string },
+  ): Promise<import("../issue-public-share").IssuePublicShare> {
+    return this.fetch(`/api/issues/${issueId}/public-share`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async revokeIssuePublicShare(issueId: string): Promise<void> {
+    await this.fetch(`/api/issues/${issueId}/public-share`, { method: "DELETE" });
+  }
+
+  async getPublicIssueShareMeta(code: string): Promise<import("../issue-public-share").IssuePublicShareMeta> {
+    return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}`);
+  }
+
+  async unlockPublicIssueShare(code: string, password: string): Promise<{ unlocked: boolean; token?: string }> {
+    return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}/unlock`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+  }
+
+  async listPublicIssueShareTimeline(
+    code: string,
+    shareToken?: string,
+  ): Promise<{ comments: import("../issue-public-share").PublicShareComment[] }> {
+    return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}/timeline`, {
+      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
+    });
+  }
+
+  async createPublicIssueShareComment(
+    code: string,
+    content: string,
+    shareToken?: string,
+  ): Promise<{ id: string; content: string; created_at: string; is_guest: boolean }> {
+    return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
+    });
+  }
+
   async previewCommentTriggers(issueId: string, content: string, parentId?: string, editingCommentId?: string): Promise<CommentTriggerPreview> {
     const raw = await this.fetch<unknown>(`/api/issues/${issueId}/comments/trigger-preview`, {
       method: "POST",

@@ -48,7 +48,7 @@
 - **不推**：普通评论、进度类中间态、自动重试中的失败、纯聊天 session
 - 两种渠道可同时开；未启用或缺少 URL/token 则跳过该渠道
 - 兼容：部署机仍可设 `MULTICA_TASK_NOTIFY_URL` 作为微信 URL 渠道的旧 fallback（建议迁到设置里）
-- 深链可选：`MULTICA_TASK_NOTIFY_APP_URL` / `MULTICA_PUBLIC_URL`（拼 issue 链接）
+- 深链可选：`MULTICA_TASK_NOTIFY_APP_URL` / `MULTICA_PUBLIC_URL`；推送正文末尾附带 issue 链接，并尽量锚到本次回复的 `#comment-{id}`，点开即可滚到该条消息
 - 实现：`server/internal/notify` + `task_notify_listener`；前端 `task-notify-tab`
 
 ### 6. Issue 对外对话分享

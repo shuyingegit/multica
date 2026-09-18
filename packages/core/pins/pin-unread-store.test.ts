@@ -11,7 +11,7 @@ describe("usePinUnreadStore", () => {
     expect(usePinUnreadStore.getState().unreadCounts).toEqual({});
   });
 
-  it("badges only after an incoming comment while away", () => {
+  it("badges after an incoming comment while away", () => {
     usePinUnreadStore.getState().seedIfNeeded(["a"]);
     usePinUnreadStore.getState().setViewingIssue("b");
     usePinUnreadStore.getState().noteIncomingComment("a");
@@ -20,22 +20,37 @@ describe("usePinUnreadStore", () => {
     expect(usePinUnreadStore.getState().unreadCounts.a).toBe(2);
   });
 
-  it("ignores own comments and comments on the open issue", () => {
+  it("badges even when the issue is currently open", () => {
     usePinUnreadStore.getState().seedIfNeeded(["a"]);
     usePinUnreadStore.getState().setViewingIssue("a");
     usePinUnreadStore.getState().noteIncomingComment("a");
-    expect(usePinUnreadStore.getState().unreadCounts.a).toBeUndefined();
+    expect(usePinUnreadStore.getState().unreadCounts.a).toBe(1);
+  });
 
+  it("ignores own comments", () => {
+    usePinUnreadStore.getState().seedIfNeeded(["a"]);
     usePinUnreadStore.getState().setViewingIssue("b");
     usePinUnreadStore.getState().noteIncomingComment("a", { fromSelf: true });
     expect(usePinUnreadStore.getState().unreadCounts.a).toBeUndefined();
   });
 
-  it("clears the badge when the pin is opened", () => {
+  it("clears the badge when navigating onto the pin", () => {
     usePinUnreadStore.getState().seedIfNeeded(["a"]);
     usePinUnreadStore.getState().noteIncomingComment("a");
     expect(usePinUnreadStore.getState().unreadCounts.a).toBe(1);
     usePinUnreadStore.getState().setViewingIssue("a");
+    expect(usePinUnreadStore.getState().unreadCounts.a).toBeUndefined();
+  });
+
+  it("does not clear on re-sync of the same viewing issue", () => {
+    usePinUnreadStore.getState().seedIfNeeded(["a"]);
+    usePinUnreadStore.getState().setViewingIssue("a");
+    usePinUnreadStore.getState().noteIncomingComment("a");
+    expect(usePinUnreadStore.getState().unreadCounts.a).toBe(1);
+    // Effect re-fire / cache refresh must not wipe the badge.
+    usePinUnreadStore.getState().setViewingIssue("a");
+    expect(usePinUnreadStore.getState().unreadCounts.a).toBe(1);
+    usePinUnreadStore.getState().markRead("a");
     expect(usePinUnreadStore.getState().unreadCounts.a).toBeUndefined();
   });
 

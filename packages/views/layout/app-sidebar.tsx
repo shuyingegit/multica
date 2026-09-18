@@ -78,6 +78,7 @@ import { useConfigStore } from "@multica/core/config";
 import { pinListOptions } from "@multica/core/pins/queries";
 import { useDeletePin, useReorderPins } from "@multica/core/pins/mutations";
 import {
+  formatPinRelativeAge,
   selectPinUnreadCount,
   usePinUnreadStore,
 } from "@multica/core/pins";
@@ -327,11 +328,22 @@ function SortablePinItem({
   );
 }
 
+/** Refresh pin-rail relative ages about once a minute. */
+function usePinAgeTick(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
 /**
  * Issue pin with live run / new-reply cues. Agent tasks come from the shared
  * workspace snapshot (same cache as the agents-working chip). Unread is the
  * session pin-unread store — NOT inbox counts — so opening the app shows a
- * clean rail, and only replies that arrive while the pin is away light up.
+ * clean rail. New replies light the badge even on the open pin until the user
+ * clicks the row or interacts with the issue detail (scroll / pointer).
  */
 function IssuePinRow({
   pin,
@@ -343,6 +355,7 @@ function IssuePinRow({
   isActive,
   issueId,
   wsId,
+  lastActivityAt,
 }: {
   pin: PinnedItem;
   href: string;
@@ -353,6 +366,8 @@ function IssuePinRow({
   isActive: boolean;
   issueId: string;
   wsId: string;
+  /** last_activity_at ?? updated_at — drives the compact age next to status. */
+  lastActivityAt: string | null | undefined;
 }) {
   const selectTasks = useCallback(
     (snapshot: AgentTask[]) => selectIssueTasks(snapshot, issueId),
@@ -363,38 +378,47 @@ function IssuePinRow({
     select: selectTasks,
   });
   const unreadCount = usePinUnreadStore(selectPinUnreadCount(issueId));
+  const markPinRead = usePinUnreadStore((s) => s.markRead);
+  const nowMs = usePinAgeTick();
+  const ageLabel = formatPinRelativeAge(lastActivityAt, nowMs);
 
   const isRunning =
     (taskGroups?.running.length ?? 0) > 0 || (taskGroups?.queued.length ?? 0) > 0;
-  // Active pin is always treated as read in the store; still hide the badge
-  // here so a same-tick WS bump cannot flash against the open page.
-  const showUnread = !isActive && !isRunning && unreadCount > 0;
+  // Keep the unread cue visible on the active pin until intentional ack.
+  // While a run is live, the spinner owns the trailing slot; unread shows
+  // again once the run ends (typical "agent finished, you haven't looked").
+  const showUnread = !isRunning && unreadCount > 0;
+  const hasTrailing = isRunning || showUnread || !!ageLabel;
 
-  let trailing: React.ReactNode = null;
-  if (isRunning) {
-    trailing = (
-      <span className="ml-auto flex shrink-0 items-center gap-1 text-caption text-muted-foreground">
-        <Loader2 className="size-3 animate-spin text-brand" aria-hidden />
-        <span className="tabular-nums" aria-label="running">
-          ···
+  const trailing = hasTrailing ? (
+    <span className="ml-auto flex shrink-0 items-center gap-1 text-caption text-muted-foreground">
+      {isRunning ? (
+        <>
+          <Loader2 className="size-3 animate-spin text-brand" aria-hidden />
+          <span className="tabular-nums" aria-label="running">
+            ···
+          </span>
+        </>
+      ) : showUnread ? (
+        <span
+          className="flex shrink-0 items-center gap-1"
+          aria-label={`unread ${unreadCount}`}
+        >
+          <span className="size-1.5 shrink-0 rounded-full bg-brand" aria-hidden />
+          <CappedNumberFlow
+            value={unreadCount}
+            animated={false}
+            className="text-caption font-medium text-brand"
+          />
         </span>
-      </span>
-    );
-  } else if (showUnread) {
-    trailing = (
-      <span
-        className="ml-auto flex shrink-0 items-center gap-1"
-        aria-label={`unread ${unreadCount}`}
-      >
-        <span className="size-1.5 shrink-0 rounded-full bg-brand" aria-hidden />
-        <CappedNumberFlow
-          value={unreadCount}
-          animated={false}
-          className="text-caption font-medium text-brand"
-        />
-      </span>
-    );
-  }
+      ) : null}
+      {ageLabel ? (
+        <span className="tabular-nums" title={lastActivityAt ?? undefined}>
+          {ageLabel}
+        </span>
+      ) : null}
+    </span>
+  ) : null;
 
   return (
     <SortablePinItem
@@ -406,6 +430,7 @@ function IssuePinRow({
       iconNode={iconNode}
       isActiveOverride={isActive}
       trailing={trailing}
+      onNavigate={() => markPinRead(issueId)}
     />
   );
 }
@@ -540,6 +565,7 @@ function PinRow({
         isActive={isActive}
         issueId={issue.id}
         wsId={wsId}
+        lastActivityAt={issue.last_activity_at ?? issue.updated_at}
       />
     );
   }
@@ -715,7 +741,8 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   }, [displayedIssuePins, pinnedIssueDetails]);
 
   // Pin unread baseline: every visible issue pin starts "read" for this tab
-  // session. Opening a pin clears its badge; WS replies while away bump it.
+  // session. Entering a pin clears its badge; replies bump even while open
+  // until the user clicks the pin or interacts with the issue detail.
   const seedPinUnread = usePinUnreadStore((s) => s.seedIfNeeded);
   const setViewingPinIssue = usePinUnreadStore((s) => s.setViewingIssue);
   const notePinComment = usePinUnreadStore((s) => s.noteIncomingComment);

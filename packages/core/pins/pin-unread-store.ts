@@ -8,9 +8,11 @@ import { create } from "zustand";
  * Product rule for the forked Multica sidebar:
  *   1. When the app opens (or a pin first appears), every pin is treated as
  *      already read — no leftover inbox counts.
- *   2. While the user is away from a pin, an incoming comment (typically the
- *      agent finishing a run) bumps a per-issue counter.
- *   3. Opening that pin clears the counter.
+ *   2. An incoming comment (typically the agent finishing a run) bumps a
+ *      per-issue counter even if that issue is currently open — the user
+ *      may be looking at the top of the page and miss the new reply.
+ *   3. The badge clears only on intentional ack: navigating to / clicking
+ *      the pin, or scrolling / interacting with the issue detail surface.
  *
  * Session-scoped only (module zustand, no persist): a full reload reseeds
  * everything as read, matching "系统打开时全部都是已读".
@@ -22,11 +24,17 @@ interface PinUnreadState {
   /** The issue the user is currently viewing (UUID), if any. */
   viewingIssueId: string | null;
   seedIfNeeded: (issueIds: readonly string[]) => void;
+  /**
+   * Track which issue route is open. Entering a *different* issue marks it
+   * read (the navigation itself is the ack). Re-syncing the same id must
+   * NOT clear — otherwise a WS-driven cache refresh would wipe a badge that
+   * arrived while the page was already open.
+   */
   setViewingIssue: (issueId: string | null) => void;
   markRead: (issueId: string) => void;
   /**
-   * Record an incoming comment on a pinned issue. Own comments and comments
-   * on the currently open issue do not bump the badge.
+   * Record an incoming comment on a pinned issue. Own comments do not bump.
+   * Comments on the currently open issue DO bump — clear via markRead.
    */
   noteIncomingComment: (
     issueId: string,
@@ -59,11 +67,9 @@ export const usePinUnreadStore = create<PinUnreadState>((set, get) => ({
 
   setViewingIssue: (issueId) => {
     const prev = get().viewingIssueId;
-    if (prev === issueId) {
-      if (issueId) get().markRead(issueId);
-      return;
-    }
+    if (prev === issueId) return;
     set({ viewingIssueId: issueId });
+    // Navigating onto a pin counts as "clicked to look" — clear its badge.
     if (issueId) get().markRead(issueId);
   },
 
@@ -83,11 +89,10 @@ export const usePinUnreadStore = create<PinUnreadState>((set, get) => ({
 
   noteIncomingComment: (issueId, opts) => {
     if (!issueId || opts?.fromSelf) return;
-    const { viewingIssueId, seeded } = get();
+    const { seeded } = get();
     // Only badge issues we've established a baseline for (i.e. pinned and
     // seen this session). Unseeded ids stay quiet until seedIfNeeded runs.
     if (!seeded[issueId]) return;
-    if (viewingIssueId === issueId) return;
     set((state) => ({
       unreadCounts: {
         ...state.unreadCounts,

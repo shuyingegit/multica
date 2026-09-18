@@ -4,3 +4,4 @@ export {
   usePinUnreadStore,
   selectPinUnreadCount,
 } from "./pin-unread-store";
+export { formatPinRelativeAge } from "./pin-relative-age";

@@ -120,6 +120,7 @@ import {
   type SubIssueRowPropertyKey,
 } from "@multica/core/issues/stores";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
+import { usePinUnreadStore } from "@multica/core/pins";
 import { BatchActionToolbar } from "./batch-action-toolbar";
 import { useIssueTimeline } from "../hooks/use-issue-timeline";
 import { useIssueReactions } from "../hooks/use-issue-reactions";
@@ -1380,6 +1381,26 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       return cached?.description != null ? cached : undefined;
     },
   });
+
+  // Pin-rail unread ack: while this issue is open, a new agent reply still
+  // lights the sidebar badge. Clear it when the user actually looks — scroll
+  // wheel / touch, or any pointer interaction inside the detail scroller.
+  // Programmatic scrollTop (restore / Virtuoso) must NOT clear the badge.
+  // Use issue.id (UUID) so it matches pin-store keys even on identifier URLs.
+  useEffect(() => {
+    const issueUuid = issue?.id;
+    if (!scrollContainerEl || !issueUuid) return;
+    const ack = () => usePinUnreadStore.getState().markRead(issueUuid);
+    scrollContainerEl.addEventListener("wheel", ack, { passive: true });
+    scrollContainerEl.addEventListener("touchmove", ack, { passive: true });
+    scrollContainerEl.addEventListener("pointerdown", ack);
+    return () => {
+      scrollContainerEl.removeEventListener("wheel", ack);
+      scrollContainerEl.removeEventListener("touchmove", ack);
+      scrollContainerEl.removeEventListener("pointerdown", ack);
+    };
+  }, [scrollContainerEl, issue?.id]);
+
   const descriptionSourceId = `description:${id}`;
   const descriptionAnnotations = useCommentAnnotations({
     draftKey: `new:${id}`,

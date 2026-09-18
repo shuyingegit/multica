@@ -392,7 +392,13 @@ describe("PinRow", () => {
     detail.current = {
       isPending: false,
       isError: false,
-      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      data: {
+        id: "issue-1",
+        identifier: "MUL-123",
+        title: "Keep this pin",
+        status: "todo",
+        updated_at: "2026-09-18T11:00:00Z",
+      },
       error: null,
     };
     // Legacy inbox unread must NOT drive the pin badge anymore.
@@ -412,25 +418,60 @@ describe("PinRow", () => {
     expect(pin?.getAttribute("aria-label") ?? pin?.querySelector("[aria-label^='unread']")?.getAttribute("aria-label")).toMatch(/unread 1/);
   });
 
-  it("hides unread while the pinned issue is the open page", async () => {
+  it("keeps unread on the open pin until intentional ack", async () => {
     navigation.current.pathname = "/acme/issues/MUL-123";
     detail.current = {
       isPending: false,
       isError: false,
-      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      data: {
+        id: "issue-1",
+        identifier: "MUL-123",
+        title: "Keep this pin",
+        status: "todo",
+        updated_at: "2026-09-18T11:00:00Z",
+      },
       error: null,
     };
-    usePinUnreadStore.setState({
-      seeded: { "issue-1": true },
-      unreadCounts: { "issue-1": 3 },
-      viewingIssueId: null,
-    });
+
+    const { rerender } = render(<AppSidebar />);
+    // Opening clears any prior unread via setViewingIssue.
+    expect(usePinUnreadStore.getState().unreadCounts["issue-1"]).toBeUndefined();
+
+    // Agent finishes while the page is already open → badge must still light.
+    usePinUnreadStore.getState().noteIncomingComment("issue-1");
+    rerender(<AppSidebar />);
+    const pin = (await screen.findByText("Keep this pin")).closest("button");
+    expect(pin?.querySelector("[aria-label^='unread']")?.getAttribute("aria-label")).toBe(
+      "unread 1",
+    );
+    expect(usePinUnreadStore.getState().unreadCounts["issue-1"]).toBe(1);
+
+    // Clicking the pin (already active) acknowledges.
+    usePinUnreadStore.getState().markRead("issue-1");
+    rerender(<AppSidebar />);
+    expect(
+      (await screen.findByText("Keep this pin"))
+        .closest("button")
+        ?.querySelector("[aria-label^='unread']"),
+    ).toBeNull();
+  });
+
+  it("shows compact last-activity age on issue pins", async () => {
+    detail.current = {
+      isPending: false,
+      isError: false,
+      data: {
+        id: "issue-1",
+        identifier: "MUL-123",
+        title: "Keep this pin",
+        status: "todo",
+        updated_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+      },
+      error: null,
+    };
 
     render(<AppSidebar />);
-    // Opening the pin clears via setViewingIssue; badge stays hidden.
-    const pin = (await screen.findByText("Keep this pin")).closest("button");
-    expect(pin?.querySelector("number-flow-react")).toBeNull();
-    expect(usePinUnreadStore.getState().unreadCounts["issue-1"]).toBeUndefined();
+    expect(await screen.findByText("3分钟")).toBeInTheDocument();
   });
 
   it("keeps the parent route active until a hidden pin is expanded", () => {

@@ -19,6 +19,37 @@ import { RichContent } from "@multica/views/rich-content";
 
 type MentionOption = { label: string; kind: "assignee" | "agent" | "member" | "guest" };
 
+function avatarHue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+function ShareAvatar({ name, url }: { name: string; url?: string | null }) {
+  const [broken, setBroken] = useState(false);
+  const initial = (name.trim().slice(0, 1) || "?").toUpperCase();
+  if (url && !broken) {
+    return (
+      <img
+        src={url}
+        alt=""
+        className="mt-0.5 size-8 shrink-0 rounded-full object-cover"
+        onError={() => setBroken(true)}
+      />
+    );
+  }
+  const hue = avatarHue(name || "访客");
+  return (
+    <span
+      className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-caption font-medium text-white"
+      style={{ background: `hsl(${hue} 55% 42%)` }}
+      aria-hidden
+    >
+      {initial}
+    </span>
+  );
+}
+
 async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`;
@@ -64,7 +95,6 @@ export default function PublicIssueSharePage() {
   const [unlocking, setUnlocking] = useState(false);
   const [profile, setProfile] = useState<PublicShareGuestProfile | null>(null);
   const [nickDraft, setNickDraft] = useState("");
-  const [locStatus, setLocStatus] = useState<"idle" | "loading" | "ok" | "fail">("idle");
   const [mentionOpen, setMentionOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const listRef = useRef<HTMLDivElement>(null);
@@ -120,32 +150,24 @@ export default function PublicIssueSharePage() {
   }, [comments.length]);
 
   const requestLocation = useCallback(async () => {
-    if (!navigator.geolocation) {
-      setLocStatus("fail");
-      return;
-    }
-    setLocStatus("loading");
+    if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const label = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-        if (label) {
-          setProfile((prev) => {
-            const next = {
-              nickname: prev?.nickname || nickDraft.trim() || "访客",
-              location: label,
-            };
-            if (code && next.nickname) saveGuestProfile(code, next);
-            return prev ? { ...prev, location: label } : next;
-          });
-          setLocStatus("ok");
-        } else {
-          setLocStatus("fail");
-        }
+        if (!label) return;
+        setProfile((prev) => {
+          if (!prev?.nickname) return prev;
+          const next = { ...prev, location: label };
+          if (code) saveGuestProfile(code, next);
+          return next;
+        });
       },
-      () => setLocStatus("fail"),
+      () => {
+        // Permission denied or unavailable — messages still send without a place.
+      },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 60_000 },
     );
-  }, [code, nickDraft]);
+  }, [code]);
 
   function confirmNickname() {
     const name = nickDraft.trim();
@@ -298,7 +320,7 @@ export default function PublicIssueSharePage() {
           <p className="mt-1 text-body text-muted-foreground">{meta.title}</p>
         </div>
         <p className="text-caption text-muted-foreground">
-          进入前请先设置昵称。之后消息都会以这个名字显示；系统也会尝试获取你所在的城市与道路。
+          进入前请先设置昵称。之后每条消息都会带上这个名字；若允许定位，位置会记在消息里，方便对照是谁、在哪、什么时候发的。
         </p>
         <Input
           placeholder="怎么称呼你？"
@@ -319,25 +341,13 @@ export default function PublicIssueSharePage() {
   return (
     <main className="mx-auto flex h-dvh max-w-2xl flex-col bg-background px-3 pb-[env(safe-area-inset-bottom)] pt-4 sm:px-4 sm:py-6">
       <header className="mb-3 shrink-0 border-b border-border pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-caption text-muted-foreground">{meta.identifier}</p>
-            <h1 className="truncate text-title font-medium">{meta.title}</h1>
-            <p className="mt-1 text-caption text-muted-foreground">
-              你是 {profile.nickname}
-              {profile.location
-                ? ` · ${profile.location}`
-                : locStatus === "loading"
-                  ? " · 定位中…"
-                  : null}
-              {meta.assignee_name ? ` · 默认找 @${meta.assignee_name}` : null}
-            </p>
-          </div>
-          {!profile.location ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => void requestLocation()}>
-              {locStatus === "loading" ? "定位中" : "获取位置"}
-            </Button>
-          ) : null}
+        <div className="min-w-0">
+          <p className="text-caption text-muted-foreground">{meta.identifier}</p>
+          <h1 className="truncate text-title font-medium">{meta.title}</h1>
+          <p className="mt-1 text-caption text-muted-foreground">
+            你是 {profile.nickname}
+            {meta.assignee_name ? ` · 默认找 @${meta.assignee_name}` : null}
+          </p>
         </div>
         {mentionOptions.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -375,12 +385,7 @@ export default function PublicIssueSharePage() {
                 key={c.id}
                 className={`flex gap-2 ${mine ? "flex-row-reverse" : "flex-row"}`}
               >
-                <div
-                  className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-caption font-medium"
-                  aria-hidden
-                >
-                  {name.slice(0, 1)}
-                </div>
+                <ShareAvatar name={name} url={c.author_avatar_url} />
                 <div
                   className={`min-w-0 max-w-[85%] rounded-2xl border px-3 py-2 text-body ${
                     mine

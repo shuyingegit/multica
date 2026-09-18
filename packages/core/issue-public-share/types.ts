@@ -32,6 +32,8 @@ export interface PublicShareComment {
   is_guest?: boolean;
   /** Resolved display name (member / agent / guest nickname). */
   author_name?: string | null;
+  /** Member/agent avatar when the server has one. Guests use a generated mark. */
+  author_avatar_url?: string | null;
   guest_nickname?: string | null;
   guest_location?: string | null;
 }

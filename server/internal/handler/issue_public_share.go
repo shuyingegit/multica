@@ -278,18 +278,19 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 	items := make([]map[string]any, 0, len(comments))
 	for _, c := range comments {
 		guestNick, guestLoc, isGuest := parseGuestMeta(c.Content)
-		authorName := h.publicShareAuthorName(r, c.AuthorType, c.AuthorID.String(), guestNick, isGuest)
+		authorName, authorAvatar := h.publicShareAuthor(r, c.AuthorType, c.AuthorID.String(), guestNick, isGuest)
 		items = append(items, map[string]any{
-			"id":             c.ID.String(),
-			"author_type":    c.AuthorType,
-			"author_id":      c.AuthorID.String(),
-			"author_name":    authorName,
-			"content":        c.Content,
-			"type":           c.Type,
-			"created_at":     c.CreatedAt.UTC().Format(time.RFC3339Nano),
-			"is_guest":       isGuest,
-			"guest_nickname": guestNick,
-			"guest_location": guestLoc,
+			"id":                c.ID.String(),
+			"author_type":       c.AuthorType,
+			"author_id":         c.AuthorID.String(),
+			"author_name":       authorName,
+			"author_avatar_url": authorAvatar,
+			"content":           c.Content,
+			"type":              c.Type,
+			"created_at":        c.CreatedAt.UTC().Format(time.RFC3339Nano),
+			"is_guest":          isGuest,
+			"guest_nickname":    guestNick,
+			"guest_location":    guestLoc,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"comments": items})
@@ -420,32 +421,49 @@ func parseGuestMeta(content string) (nickname, location string, isGuest bool) {
 	return nickname, location, true
 }
 
-func (h *Handler) publicShareAuthorName(r *http.Request, authorType, authorID, guestNick string, isGuest bool) string {
+func (h *Handler) publicShareAuthor(r *http.Request, authorType, authorID, guestNick string, isGuest bool) (name, avatar string) {
 	if isGuest {
 		if guestNick != "" {
-			return guestNick
+			return guestNick, ""
 		}
-		return "访客"
+		return "访客", ""
 	}
 	switch authorType {
 	case "agent":
-		if a, err := h.Queries.GetAgent(r.Context(), parseUUID(authorID)); err == nil && a.Name != "" {
-			return a.Name
+		if a, err := h.Queries.GetAgent(r.Context(), parseUUID(authorID)); err == nil {
+			n := a.Name
+			if n == "" {
+				n = "智能体"
+			}
+			if a.AvatarUrl.Valid {
+				return n, a.AvatarUrl.String
+			}
+			return n, ""
 		}
-		return "智能体"
+		return "智能体", ""
 	case "member":
 		if u, err := h.Queries.GetUser(r.Context(), parseUUID(authorID)); err == nil {
-			if u.Name != "" {
-				return u.Name
+			n := u.Name
+			if n == "" {
+				n = u.Email
 			}
-			if u.Email != "" {
-				return u.Email
+			if n == "" {
+				n = "团队"
 			}
+			if u.AvatarUrl.Valid {
+				return n, u.AvatarUrl.String
+			}
+			return n, ""
 		}
-		return "团队"
+		return "团队", ""
 	default:
-		return authorType
+		return authorType, ""
 	}
+}
+
+func (h *Handler) publicShareAuthorName(r *http.Request, authorType, authorID, guestNick string, isGuest bool) string {
+	name, _ := h.publicShareAuthor(r, authorType, authorID, guestNick, isGuest)
+	return name
 }
 
 func (h *Handler) publicShareAssignee(r *http.Request, issue db.Issue) (name string, typ string) {

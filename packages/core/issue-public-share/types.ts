@@ -20,6 +20,7 @@ export interface IssuePublicShareMeta {
   /** Display name of the issue assignee when present. */
   assignee_name?: string | null;
   assignee_type?: string | null;
+  assignee_id?: string | null;
 }
 
 export interface PublicShareComment {

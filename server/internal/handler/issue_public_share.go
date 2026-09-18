@@ -207,17 +207,18 @@ func (h *Handler) GetPublicIssueShareMeta(w http.ResponseWriter, r *http.Request
 	}
 	unlocked := share.AuthMode == "none" || h.publicShareUnlocked(r, share)
 	identifier := service.IssueIdentifier(ws.IssuePrefix, issue.Number)
-	assigneeName, assigneeType := h.publicShareAssignee(r, issue)
+	assigneeName, assigneeType, assigneeID := h.publicShareAssignee(r, issue)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"code":           share.Code,
 		"auth_mode":      share.AuthMode,
 		"needs_password": share.AuthMode == "password" && !unlocked,
-		"unlocked":       unlocked,
 		"title":          issue.Title,
 		"identifier":     identifier,
 		"cutoff_at":      share.CutoffAt.UTC().Format(time.RFC3339Nano),
 		"assignee_name":  assigneeName,
 		"assignee_type":  assigneeType,
+		"assignee_id":    assigneeID,
+		"unlocked":       unlocked,
 	})
 }
 
@@ -300,6 +301,7 @@ type publicIssueCommentRequest struct {
 	Content  string `json:"content"`
 	Nickname string `json:"nickname,omitempty"`
 	Location string `json:"location,omitempty"`
+	ParentID string `json:"parent_id,omitempty"`
 }
 
 // CreatePublicIssueShareComment — POST /api/public/issue-shares/{code}/comments
@@ -331,6 +333,21 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		content = formatGuestCommentBody(nickname, strings.TrimSpace(req.Location), content)
 	}
 
+	var parent pgtype.UUID
+	var parentComment *db.Comment
+	if pid := strings.TrimSpace(req.ParentID); pid != "" {
+		if _, err := uuid.Parse(pid); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid parent")
+			return
+		}
+		parent = parseUUID(pid)
+		if pc, err := h.Queries.GetCommentInWorkspace(r.Context(), db.GetCommentInWorkspaceParams{
+			ID:          parent,
+			WorkspaceID: issue.WorkspaceID,
+		}); err == nil && uuidToString(pc.IssueID) == uuidToString(issue.ID) {
+			parentComment = &pc
+		}
+	}
 	authorID := share.CreatedBy.String()
 	created, err := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
 		ID:          dbid.NewV7(),
@@ -340,7 +357,7 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		AuthorID:    parseUUID(authorID),
 		Content:     content,
 		Type:        "comment",
-		ParentID:    pgtype.UUID{},
+		ParentID:    parent,
 	})
 	if err != nil {
 		slog.Warn("public share comment failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -361,7 +378,7 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		"via_public_share":    true,
 	})
 
-	_ = h.triggerTasksForComment(r.Context(), issue, comment, nil, "member", authorID, authorID, nil)
+	_ = h.triggerTasksForComment(r.Context(), issue, comment, parentComment, "member", authorID, authorID, nil)
 
 	guestNick, guestLoc, _ := parseGuestMeta(comment.Content)
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -466,26 +483,26 @@ func (h *Handler) publicShareAuthorName(r *http.Request, authorType, authorID, g
 	return name
 }
 
-func (h *Handler) publicShareAssignee(r *http.Request, issue db.Issue) (name string, typ string) {
+func (h *Handler) publicShareAssignee(r *http.Request, issue db.Issue) (name, typ, id string) {
 	if !issue.AssigneeType.Valid || !issue.AssigneeID.Valid {
-		return "", ""
+		return "", "", ""
 	}
 	typ = issue.AssigneeType.String
-	id := uuidToString(issue.AssigneeID)
+	id = uuidToString(issue.AssigneeID)
 	switch typ {
 	case "agent":
 		if a, err := h.Queries.GetAgent(r.Context(), parseUUID(id)); err == nil {
-			return a.Name, typ
+			return a.Name, typ, id
 		}
 	case "member":
 		if u, err := h.Queries.GetUser(r.Context(), parseUUID(id)); err == nil {
 			if u.Name != "" {
-				return u.Name, typ
+				return u.Name, typ, id
 			}
-			return u.Email, typ
+			return u.Email, typ, id
 		}
 	}
-	return "", typ
+	return "", typ, id
 }
 
 func (h *Handler) loadPublicIssueShare(w http.ResponseWriter, r *http.Request, code string) (*issueshare.Share, db.Issue, db.Workspace, bool) {

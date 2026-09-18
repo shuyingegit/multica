@@ -110,11 +110,55 @@ func (c *ClawbotClient) Send(ctx context.Context, msg Message) error {
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Title/content rejected — retry once with a short payload so a long
+		// preview cannot silently kill ClawBot delivery.
+		if utf8.RuneCountInString(content) > 180 || utf8.RuneCountInString(title) > 40 {
+			return c.sendOnce(ctx, endpoint, channel, truncateRunes(title, 32), truncateRunes(content, 160))
+		}
 		return fmt.Errorf("notify clawbot: unexpected status %d", resp.StatusCode)
 	}
 	var parsed pushPlusResp
 	if err := json.Unmarshal(raw, &parsed); err == nil && parsed.Code != 0 && parsed.Code != 200 {
+		if utf8.RuneCountInString(content) > 180 {
+			return c.sendOnce(ctx, endpoint, channel, truncateRunes(title, 32), truncateRunes(content, 160))
+		}
 		return fmt.Errorf("notify clawbot: code=%d msg=%s", parsed.Code, parsed.Msg)
+	}
+	return nil
+}
+
+func (c *ClawbotClient) sendOnce(ctx context.Context, endpoint, channel, title, content string) error {
+	body, err := json.Marshal(pushPlusBody{
+		Token:   c.Token,
+		Title:   title,
+		Content: content,
+		Channel: channel,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", httpUserAgent)
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 8 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("notify clawbot: unexpected status %d", resp.StatusCode)
+	}
+	var parsed pushPlusResp
+	if err := json.Unmarshal(raw, &parsed); err == nil && parsed.Code != 0 && parsed.Code != 200 {
+		return fmt.Errorf("notify clawbot: code=%d msg=%s body=%s", parsed.Code, parsed.Msg, truncateRunes(string(raw), 120))
 	}
 	return nil
 }

@@ -96,15 +96,14 @@ func handleTaskNotify(
 	identifier := service.IssueIdentifier(ws.IssuePrefix, issue.Number)
 	agentName := lookupAgentName(ctx, queries, agentID)
 
-	// ClawBot / WeChat preview ~3 lines: pack who+ticket into title, put the
-	// reply gist on content line 1 so “点击查看详情” above the fold still answers
-	// 哪个票 / 哪个人 / 哪件事.
-	const clawbotTitleReserve = 8 // room for 【scsoi】 prefix
+	// Title stays short (identifier + status + who). The gist lives in content.
+	// A long Chinese title plus 【scsoi】 blows PushPlus's byte cap and the
+	// send fails silently, which is what stopped ClawBot after the last update.
 	var title, content string
 	switch kind {
 	case "completed":
 		reply := latestAgentReply(ctx, queries, issue, taskID)
-		title = notify.BuildTaskEndTitle(identifier, "completed", agentName, issue.Title, clawbotTitleReserve)
+		title = notify.BuildTaskEndTitle(identifier, "completed", agentName, "", 16)
 		content = notify.BuildTaskEndContent(
 			"completed", issue.Title, agentName, reply.Snippet,
 			resolvedBase, ws.Slug, identifier, reply.CommentID,
@@ -125,7 +124,7 @@ func handleTaskNotify(
 				body = reply.Snippet + "\n" + errText
 			}
 		}
-		title = notify.BuildTaskEndTitle(identifier, "failed", agentName, issue.Title, clawbotTitleReserve)
+		title = notify.BuildTaskEndTitle(identifier, "failed", agentName, "", 16)
 		content = notify.BuildTaskEndContent(
 			"failed", issue.Title, agentName, body,
 			resolvedBase, ws.Slug, identifier, reply.CommentID,

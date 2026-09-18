@@ -17,7 +17,11 @@ import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import { RichContent } from "@multica/views/rich-content";
 
-type MentionOption = { label: string; kind: "assignee" | "agent" | "member" | "guest" };
+type MentionOption = {
+  label: string;
+  kind: "agent" | "member" | "guest";
+  id?: string;
+};
 
 function avatarHue(name: string): number {
   let h = 0;
@@ -96,6 +100,8 @@ export default function PublicIssueSharePage() {
   const [profile, setProfile] = useState<PublicShareGuestProfile | null>(null);
   const [nickDraft, setNickDraft] = useState("");
   const [mentionOpen, setMentionOpen] = useState(false);
+  const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const listRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -198,32 +204,46 @@ export default function PublicIssueSharePage() {
 
   const mentionOptions = useMemo(() => {
     const opts: MentionOption[] = [];
-    if (meta?.assignee_name) {
+    if (meta?.assignee_name && meta.assignee_id && (meta.assignee_type === "agent" || meta.assignee_type === "member")) {
       opts.push({
         label: meta.assignee_name,
-        kind: meta.assignee_type === "agent" ? "agent" : "assignee",
+        kind: meta.assignee_type,
+        id: meta.assignee_id,
       });
     }
-    const seen = new Set(opts.map((o) => o.label));
+    const seen = new Set(opts.map((o) => o.id || o.label));
     for (const c of comments) {
+      const guest = !!c.is_guest;
       const name =
         c.author_name ||
         c.guest_nickname ||
-        (c.is_guest ? "访客" : c.author_type === "agent" ? "智能体" : "团队");
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      opts.push({
-        label: name,
-        kind: c.is_guest ? "guest" : c.author_type === "agent" ? "agent" : "member",
-      });
+        (guest ? "访客" : c.author_type === "agent" ? "智能体" : "团队");
+      const kind: MentionOption["kind"] = guest
+        ? "guest"
+        : c.author_type === "agent"
+          ? "agent"
+          : "member";
+      const id = guest ? undefined : c.author_id;
+      const key = id || name;
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ label: name, kind, id });
     }
     return opts;
   }, [comments, meta]);
 
-  function insertMention(label: string) {
+  function mentionMarkdown(m: MentionOption): string {
+    if (m.id && (m.kind === "agent" || m.kind === "member")) {
+      return `[@${m.label}](mention://${m.kind}/${m.id})`;
+    }
+    return `@${m.label}`;
+  }
+
+  function insertMention(m: MentionOption) {
+    const token = mentionMarkdown(m);
     setDraft((d) => {
-      const next = d.replace(/@([^\s@]*)$/, `@${label} `);
-      return next.includes(`@${label}`) ? next : `${d}@${label} `;
+      const next = d.replace(/@([^\s@]*)$/, `${token} `);
+      return next.includes(token) ? next : `${d}${token} `;
     });
     setMentionOpen(false);
     taRef.current?.focus();
@@ -246,23 +266,25 @@ export default function PublicIssueSharePage() {
     }
   }
 
-  async function send() {
-    const text = draft.trim();
+  async function send(parentId?: string) {
+    const text = (parentId ? replyDraft : draft).trim();
     if (!text || sending || !profile?.nickname) return;
     setSending(true);
     try {
-      let body = text;
-      if (!/@\S+/.test(body) && meta?.assignee_name) {
-        body = `@${meta.assignee_name} ${body}`;
-      }
       await api.createPublicIssueShareComment(
         code,
-        body,
+        text,
         token,
         profile.nickname,
         profile.location,
+        parentId,
       );
-      setDraft("");
+      if (parentId) {
+        setReplyDraft("");
+        setReplyTo(null);
+      } else {
+        setDraft("");
+      }
       await loadTimeline();
     } catch (e) {
       setError(e instanceof Error ? e.message : "发送失败");
@@ -381,8 +403,8 @@ export default function PublicIssueSharePage() {
             const loc = parsed.location || c.guest_location;
             const mine = guest && parsed.nickname === profile.nickname;
             return (
+              <div key={c.id} className="space-y-1">
               <div
-                key={c.id}
                 className={`flex gap-2 ${mine ? "flex-row-reverse" : "flex-row"}`}
               >
                 <ShareAvatar name={name} url={c.author_avatar_url} />
@@ -403,7 +425,41 @@ export default function PublicIssueSharePage() {
                   <div className="break-words">
                     <RichContent content={body} density="compact" />
                   </div>
+                  <button
+                    type="button"
+                    className="mt-1 text-caption text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setReplyTo({ id: c.id, name });
+                      setReplyDraft("");
+                    }}
+                  >
+                    回复
+                  </button>
+                  {replyTo?.id === c.id ? (
+                    <div className="mt-2 space-y-2">
+                      <Textarea
+                        rows={2}
+                        placeholder={`回复 ${name}`}
+                        value={replyDraft}
+                        onChange={(e) => setReplyDraft(e.target.value)}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" size="sm" variant="ghost" onClick={() => setReplyTo(null)}>
+                          取消
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={sending || !replyDraft.trim()}
+                          onClick={() => void send(c.id)}
+                        >
+                          发送
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
+              </div>
               </div>
             );
           })
@@ -420,7 +476,7 @@ export default function PublicIssueSharePage() {
                 type="button"
                 size="sm"
                 variant="ghost"
-                onClick={() => insertMention(m.label)}
+                onClick={() => insertMention(m)}
               >
                 @{m.label}
               </Button>

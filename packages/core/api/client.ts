@@ -1503,6 +1503,7 @@ export class ApiClient {
     shareToken?: string,
     nickname?: string,
     location?: string,
+    parentId?: string,
   ): Promise<{ id: string; content: string; created_at: string; is_guest: boolean }> {
     return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}/comments`, {
       method: "POST",
@@ -1510,6 +1511,7 @@ export class ApiClient {
         content,
         ...(nickname ? { nickname } : {}),
         ...(location ? { location } : {}),
+        ...(parentId ? { parent_id: parentId } : {}),
       }),
       headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
     });

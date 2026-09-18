@@ -26,6 +26,11 @@ import {
  * where you last were on it. The map is module state: per browser tab (web
  * tabs are real tabs), reset on full reload where the browser's own
  * restoration takes over.
+ *
+ * Fork note: issue detail also embeds the issue UUID in `containerKey`
+ * (`main:<uuid>`). We additionally index by containerKey alone so a URL
+ * rewrite between UUID and identifier (same issue, different pathname)
+ * still finds the saved offset.
  */
 const savedOffsets = new Map<string, { top: number; height: number }>();
 
@@ -64,7 +69,8 @@ export function WebScrollRestorationProvider({
       if (!(el instanceof HTMLElement)) return;
       const raw = el.getAttribute("data-tab-scroll-root");
       if (raw === null) return;
-      const key = mementoKey(window.location.pathname, raw || "main");
+      const containerKey = raw || "main";
+      const key = mementoKey(window.location.pathname, containerKey);
       const suppressed = suppressedUntil.get(key);
       if (suppressed !== undefined) {
         if (performance.now() < suppressed) return;
@@ -74,8 +80,12 @@ export function WebScrollRestorationProvider({
         // Back at the top is the default state — a stale offset would
         // otherwise resurrect on the next visit.
         savedOffsets.delete(key);
+        savedOffsets.delete(containerKey);
       } else {
-        savedOffsets.set(key, { top: el.scrollTop, height: el.scrollHeight });
+        const entry = { top: el.scrollTop, height: el.scrollHeight };
+        savedOffsets.set(key, entry);
+        // Dual index: containerKey alone survives UUID↔identifier rewrites.
+        savedOffsets.set(containerKey, entry);
       }
     };
     // Scroll events don't bubble, but they do propagate on the capture
@@ -91,12 +101,13 @@ export function WebScrollRestorationProvider({
   const adapter = useMemo<ScrollRestorationAdapter>(
     () => ({
       get(containerKey) {
-        const key = mementoKey(window.location.pathname, containerKey);
-        const saved = savedOffsets.get(key);
+        const pathKey = mementoKey(window.location.pathname, containerKey);
+        const saved = savedOffsets.get(pathKey) ?? savedOffsets.get(containerKey);
         if (saved) {
           // The caller is about to restore this offset — shield the memento
           // from the clamped scroll events the restore itself can produce.
-          suppressedUntil.set(key, performance.now() + RESTORE_SUPPRESS_MS);
+          suppressedUntil.set(pathKey, performance.now() + RESTORE_SUPPRESS_MS);
+          suppressedUntil.set(containerKey, performance.now() + RESTORE_SUPPRESS_MS);
         }
         return saved;
       },

@@ -69,7 +69,7 @@ import { useCurrentWorkspace, useWorkspacePaths, paths } from "@multica/core/pat
 import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { resolvePublicFileUrl } from "@multica/core/workspace/avatar-url";
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { inboxListOptions, inboxUnreadSummaryOptions, useInboxUnreadCount, hasOtherWorkspaceUnread, unreadWorkspaceIds } from "@multica/core/inbox/queries";
+import { inboxUnreadSummaryOptions, useInboxUnreadCount, hasOtherWorkspaceUnread, unreadWorkspaceIds } from "@multica/core/inbox/queries";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { countUnreadChatMessages } from "@multica/core/chat/unread";
 import { useChatStore } from "@multica/core/chat";
@@ -77,10 +77,19 @@ import { api, ApiError } from "@multica/core/api";
 import { useConfigStore } from "@multica/core/config";
 import { pinListOptions } from "@multica/core/pins/queries";
 import { useDeletePin, useReorderPins } from "@multica/core/pins/mutations";
-import { issueDetailOptions } from "@multica/core/issues/queries";
+import {
+  selectPinUnreadCount,
+  usePinUnreadStore,
+} from "@multica/core/pins";
+import {
+  issueDetailOptions,
+  issueKeys,
+  issueTimelineOptions,
+} from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
-import type { AgentTask, InboxItem, Issue, PinnedItem } from "@multica/core/types";
+import { useWSEvent } from "@multica/core/realtime";
+import type { AgentTask, CommentCreatedPayload, Issue, PinnedItem } from "@multica/core/types";
 import { selectIssueTasks } from "../issues/surface/activity";
 import { useLogout } from "../auth";
 import { ProjectIcon } from "../projects/components/project-icon";
@@ -174,8 +183,6 @@ const utilityNav: { key: NavKey; labelKey: NavLabelKey }[] = [
 const NAV_ITEM_CLASS_NAME =
   "text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground";
 
-const EMPTY_INBOX: InboxItem[] = [];
-
 /**
  * Last `/issues/<segment>` segment of a path, URL-decoded. Null when the
  * path is not an issue detail route.
@@ -214,15 +221,6 @@ export function isIssuePinPathActive(
   if (pathname === issueDetailHref(issueId)) return true;
   if (identifier && pathname === issueDetailHref(identifier)) return true;
   return false;
-}
-
-/** Unread inbox notifications tied to one issue (active list only). */
-function countUnreadInboxForIssue(items: readonly InboxItem[], issueId: string): number {
-  let count = 0;
-  for (const item of items) {
-    if (item.issue_id === issueId && !item.read && !item.archived) count += 1;
-  }
-  return count;
 }
 
 function DraftDot() {
@@ -330,9 +328,10 @@ function SortablePinItem({
 }
 
 /**
- * Issue pin with live run/unread cues. Subscribes to the shared workspace
- * agent-task snapshot and inbox list (same caches as the agents-working chip
- * and Inbox nav) so N pinned issues do not fan out extra requests.
+ * Issue pin with live run / new-reply cues. Agent tasks come from the shared
+ * workspace snapshot (same cache as the agents-working chip). Unread is the
+ * session pin-unread store — NOT inbox counts — so opening the app shows a
+ * clean rail, and only replies that arrive while the pin is away light up.
  */
 function IssuePinRow({
   pin,
@@ -363,16 +362,13 @@ function IssuePinRow({
     ...agentTaskSnapshotOptions(wsId),
     select: selectTasks,
   });
-  const { data: inboxItems = EMPTY_INBOX } = useQuery({
-    ...inboxListOptions(wsId),
-    enabled: !!wsId,
-  });
+  const unreadCount = usePinUnreadStore(selectPinUnreadCount(issueId));
 
   const isRunning =
     (taskGroups?.running.length ?? 0) > 0 || (taskGroups?.queued.length ?? 0) > 0;
-  // While the user is on this issue, auto-read clears the inbox row — hide the
-  // badge so it does not flash against the open page (same idea as chat).
-  const unreadCount = isActive ? 0 : countUnreadInboxForIssue(inboxItems, issueId);
+  // Active pin is always treated as read in the store; still hide the badge
+  // here so a same-tick WS bump cannot flash against the open page.
+  const showUnread = !isActive && !isRunning && unreadCount > 0;
 
   let trailing: React.ReactNode = null;
   if (isRunning) {
@@ -384,13 +380,19 @@ function IssuePinRow({
         </span>
       </span>
     );
-  } else if (unreadCount > 0) {
+  } else if (showUnread) {
     trailing = (
-      <CappedNumberFlow
-        value={unreadCount}
-        animated={false}
-        className="ml-auto text-caption font-medium text-foreground"
-      />
+      <span
+        className="ml-auto flex shrink-0 items-center gap-1"
+        aria-label={`unread ${unreadCount}`}
+      >
+        <span className="size-1.5 shrink-0 rounded-full bg-brand" aria-hidden />
+        <CappedNumberFlow
+          value={unreadCount}
+          animated={false}
+          className="text-caption font-medium text-brand"
+        />
+      </span>
     );
   }
 
@@ -711,6 +713,68 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     });
     return map;
   }, [displayedIssuePins, pinnedIssueDetails]);
+
+  // Pin unread baseline: every visible issue pin starts "read" for this tab
+  // session. Opening a pin clears its badge; WS replies while away bump it.
+  const seedPinUnread = usePinUnreadStore((s) => s.seedIfNeeded);
+  const setViewingPinIssue = usePinUnreadStore((s) => s.setViewingIssue);
+  const notePinComment = usePinUnreadStore((s) => s.noteIncomingComment);
+  useEffect(() => {
+    if (displayedIssuePins.length === 0) return;
+    seedPinUnread(displayedIssuePins.map((pin) => pin.item_id));
+  }, [displayedIssuePins, seedPinUnread]);
+  useEffect(() => {
+    // Resolve the open issue UUID from the address bar (identifier or UUID)
+    // against the pin detail cache so mark-read matches store keys.
+    const segment = issueDetailSegment(pathname);
+    if (!segment) {
+      setViewingPinIssue(null);
+      return;
+    }
+    for (const issue of pinnedIssueById.values()) {
+      if (
+        issue.id === segment ||
+        issue.identifier === segment ||
+        (issue.identifier &&
+          issue.identifier.toLowerCase() === segment.toLowerCase())
+      ) {
+        setViewingPinIssue(issue.id);
+        return;
+      }
+    }
+    // UUID URL before pin detail fills — still mark that UUID read.
+    setViewingPinIssue(/^[0-9a-f-]{36}$/i.test(segment) ? segment : null);
+  }, [pathname, pinnedIssueById, setViewingPinIssue]);
+
+  const onPinCommentCreated = useCallback(
+    (payload: unknown) => {
+      const { comment } = (payload ?? {}) as CommentCreatedPayload;
+      if (!comment?.issue_id) return;
+      const fromSelf =
+        comment.author_type === "member" &&
+        !!userId &&
+        comment.author_id === userId;
+      notePinComment(comment.issue_id, { fromSelf });
+    },
+    [notePinComment, userId],
+  );
+  useWSEvent("comment:created", onPinCommentCreated);
+
+  // Warm the identifier-keyed detail + timeline caches so pin A↔B↔C switches
+  // skip the resolve skeleton and land on cached scroll restore sooner.
+  useEffect(() => {
+    if (!wsId) return;
+    for (const issue of pinnedIssueById.values()) {
+      if (issue.identifier && issue.identifier !== issue.id) {
+        queryClient.setQueryData<Issue>(
+          issueKeys.detail(wsId, issue.identifier),
+          (old) => old ?? issue,
+        );
+      }
+      void queryClient.prefetchQuery(issueTimelineOptions(issue.id));
+    }
+  }, [pinnedIssueById, queryClient, wsId]);
+
   // View pins are absent here (their href resolves async): while a view
   // pin is active the plain nav row for its surface stays highlighted too.
   // Accepted — suppressing it would need every view detail lifted up here.

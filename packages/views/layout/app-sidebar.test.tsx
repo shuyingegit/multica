@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { buildIssueStatusCatalog } from "@multica/core/issue-statuses/queries";
+import { usePinUnreadStore } from "@multica/core/pins";
 
 vi.mock("@multica/core/issue-statuses/hooks", () => ({
   useIssueStatuses: () => buildIssueStatusCatalog([]),
@@ -168,7 +169,6 @@ vi.mock("@multica/core/api", async (importOriginal) => {
 });
 vi.mock("@multica/core/inbox/queries", () => ({
   inboxUnreadSummaryOptions: () => ({ queryKey: ["inbox", "unread-summary"] }),
-  inboxListOptions: () => ({ queryKey: ["inbox", "list"] }),
   // The nav badge and the switcher dot read the SAME cross-workspace summary,
   // so the fixture that drives one drives the other.
   useInboxUnreadCount: (currentWsId: string | null) =>
@@ -180,11 +180,19 @@ vi.mock("@multica/core/inbox/queries", () => ({
   unreadWorkspaceIds: (entries: { workspace_id: string; count: number }[]) =>
     new Set(entries.filter((s) => s.count > 0).map((s) => s.workspace_id)),
 }));
+vi.mock("@multica/core/realtime", () => ({
+  useWSEvent: () => undefined,
+}));
 vi.mock("@multica/core/agents", () => ({
   agentTaskSnapshotOptions: () => ({ queryKey: ["agents", "task-snapshot"] }),
 }));
 vi.mock("@multica/core/issues/queries", () => ({
   issueDetailOptions: (_wsId: string, id: string) => ({ queryKey: ["issue", id] }),
+  issueKeys: {
+    detail: (_wsId: string, id: string) => ["issue", id],
+    timeline: (id: string) => ["timeline", id],
+  },
+  issueTimelineOptions: (id: string) => ({ queryKey: ["timeline", id] }),
 }));
 vi.mock("@multica/core/issues/stores/create-mode-store", () => ({
   useCreateModeStore: { getState: () => ({ lastMode: "agent" }) },
@@ -263,6 +271,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   },
   useQueryClient: () => ({
     fetchQuery: vi.fn(),
+    prefetchQuery: vi.fn(),
+    setQueryData: vi.fn(),
     invalidateQueries: invitationApi.invalidateQueries,
     getQueryData: (queryKey: readonly unknown[]) => {
       if (queryKey[0] === "issue") {
@@ -293,6 +303,7 @@ describe("PinRow", () => {
     workspaces.current = [];
     inboxList.current = [];
     agentTasks.current = [];
+    usePinUnreadStore.getState().reset();
   });
 
   it("unpins missing details", async () => {
@@ -377,23 +388,28 @@ describe("PinRow", () => {
     expect(pin?.className).toContain("bg-sidebar-accent");
   });
 
-  it("badges unread inbox count when the agent is idle", async () => {
+  it("badges session pin-unread after an away reply, not stale inbox counts", async () => {
     detail.current = {
       isPending: false,
       isError: false,
       data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
       error: null,
     };
+    // Legacy inbox unread must NOT drive the pin badge anymore.
     inboxList.current = [
       { issue_id: "issue-1", read: false, archived: false },
       { issue_id: "issue-1", read: false, archived: false },
-      { issue_id: "issue-1", read: true, archived: false },
-      { issue_id: "other", read: false, archived: false },
     ];
 
-    render(<AppSidebar />);
+    const { rerender } = render(<AppSidebar />);
+    // Seed runs on mount → still no badge.
+    expect((await screen.findByText("Keep this pin")).closest("button")
+      ?.querySelector("number-flow-react")).toBeNull();
+
+    usePinUnreadStore.getState().noteIncomingComment("issue-1");
+    rerender(<AppSidebar />);
     const pin = (await screen.findByText("Keep this pin")).closest("button");
-    expect(pin?.querySelector("number-flow-react")).toHaveAttribute("aria-label", "2");
+    expect(pin?.getAttribute("aria-label") ?? pin?.querySelector("[aria-label^='unread']")?.getAttribute("aria-label")).toMatch(/unread 1/);
   });
 
   it("hides unread while the pinned issue is the open page", async () => {
@@ -404,11 +420,17 @@ describe("PinRow", () => {
       data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
       error: null,
     };
-    inboxList.current = [{ issue_id: "issue-1", read: false, archived: false }];
+    usePinUnreadStore.setState({
+      seeded: { "issue-1": true },
+      unreadCounts: { "issue-1": 3 },
+      viewingIssueId: null,
+    });
 
     render(<AppSidebar />);
+    // Opening the pin clears via setViewingIssue; badge stays hidden.
     const pin = (await screen.findByText("Keep this pin")).closest("button");
     expect(pin?.querySelector("number-flow-react")).toBeNull();
+    expect(usePinUnreadStore.getState().unreadCounts["issue-1"]).toBeUndefined();
   });
 
   it("keeps the parent route active until a hidden pin is expanded", () => {

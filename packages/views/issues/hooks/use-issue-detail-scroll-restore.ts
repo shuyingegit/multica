@@ -20,6 +20,41 @@ type UseIssueDetailScrollRestoreArgs = {
 
 const scrollPositions = new Map<string, number>();
 const SCROLL_POSITION_CACHE_MAX_SIZE = 100;
+const SESSION_STORAGE_KEY = "multica_issue_detail_scroll_v1";
+
+function readSessionScrollMap(): void {
+  if (typeof window === "undefined" || typeof sessionStorage === "undefined") return;
+  if (scrollPositions.size > 0) return;
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "number" && value > 0) {
+        scrollPositions.set(key, value);
+      }
+    }
+  } catch {
+    // Corrupt / quota — start empty.
+  }
+}
+
+function writeSessionScrollMap(): void {
+  if (typeof window === "undefined" || typeof sessionStorage === "undefined") return;
+  try {
+    const obj: Record<string, number> = {};
+    for (const [key, value] of scrollPositions) {
+      obj[key] = value;
+    }
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(obj));
+  } catch {
+    // QuotaExceeded — ignore; in-memory map still works for the SPA session.
+  }
+}
+
+// Hydrate once at module load so the first visit after a soft reload can
+// restore. Full page reloads intentionally keep sessionStorage (same tab).
+readSessionScrollMap();
 
 export function useIssueDetailScrollRestore({
   restoreKey,
@@ -78,13 +113,16 @@ function saveScrollPosition(restoreKey: string, scrollTop: number) {
   }
 
   scrollPositions.set(restoreKey, scrollTop);
+  writeSessionScrollMap();
 }
 
 function restoreScrollTopWithRetry(el: HTMLElement, target: number) {
   let cancelled = false;
   let attempts = 0;
   let stableFrames = 0;
-  const maxAttempts = 30;
+  // Content (markdown / images / virtuoso) often settles after the first
+  // paint; keep retrying long enough that pin A→B→A restores stick.
+  const maxAttempts = 60;
   const requiredStableFrames = 2;
 
   el.scrollTop = target;

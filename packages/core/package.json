@@ -104,6 +104,7 @@
     "./pins": "./pins/index.ts",
     "./pins/queries": "./pins/queries.ts",
     "./pins/mutations": "./pins/mutations.ts",
+    "./pins/pin-unread-store": "./pins/pin-unread-store.ts",
     "./issue-views": "./issue-views/index.ts",
     "./issue-views/queries": "./issue-views/queries.ts",
     "./issue-views/mutations": "./issue-views/mutations.ts",

@@ -26,6 +26,7 @@ import { Layers,
   Check,
   SquarePen,
   X,
+  Loader2,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -68,7 +69,7 @@ import { useCurrentWorkspace, useWorkspacePaths, paths } from "@multica/core/pat
 import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { resolvePublicFileUrl } from "@multica/core/workspace/avatar-url";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { inboxUnreadSummaryOptions, useInboxUnreadCount, hasOtherWorkspaceUnread, unreadWorkspaceIds } from "@multica/core/inbox/queries";
+import { inboxListOptions, inboxUnreadSummaryOptions, useInboxUnreadCount, hasOtherWorkspaceUnread, unreadWorkspaceIds } from "@multica/core/inbox/queries";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { countUnreadChatMessages } from "@multica/core/chat/unread";
 import { useChatStore } from "@multica/core/chat";
@@ -78,7 +79,9 @@ import { pinListOptions } from "@multica/core/pins/queries";
 import { useDeletePin, useReorderPins } from "@multica/core/pins/mutations";
 import { issueDetailOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
-import type { PinnedItem } from "@multica/core/types";
+import { agentTaskSnapshotOptions } from "@multica/core/agents";
+import type { AgentTask, InboxItem, Issue, PinnedItem } from "@multica/core/types";
+import { selectIssueTasks } from "../issues/surface/activity";
 import { useLogout } from "../auth";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { routeIconForPath } from "./route-icon-components";
@@ -171,6 +174,33 @@ const utilityNav: { key: NavKey; labelKey: NavLabelKey }[] = [
 const NAV_ITEM_CLASS_NAME =
   "text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground";
 
+const EMPTY_INBOX: InboxItem[] = [];
+
+/**
+ * Issue detail URLs are rewritten to the human identifier (MUL-123) after
+ * load, but pins store the UUID. Match either spelling so the pinned row
+ * stays highlighted on the page the user is actually looking at.
+ */
+function isIssuePinPathActive(
+  pathname: string,
+  issueDetailHref: (id: string) => string,
+  issueId: string,
+  identifier?: string | null,
+): boolean {
+  if (pathname === issueDetailHref(issueId)) return true;
+  if (identifier && pathname === issueDetailHref(identifier)) return true;
+  return false;
+}
+
+/** Unread inbox notifications tied to one issue (active list only). */
+function countUnreadInboxForIssue(items: readonly InboxItem[], issueId: string): number {
+  let count = 0;
+  for (const item of items) {
+    if (item.issue_id === issueId && !item.read && !item.archived) count += 1;
+  }
+  return count;
+}
+
 function DraftDot() {
   const hasDraft = useIssueDraftStore((s) => s.hasDraft());
   if (!hasDraft) return null;
@@ -192,6 +222,7 @@ function SortablePinItem({
   iconNode,
   onNavigate,
   isActiveOverride,
+  trailing,
 }: {
   pin: PinnedItem;
   href: string;
@@ -203,6 +234,8 @@ function SortablePinItem({
   onNavigate?: () => void;
   /** Overrides the plain path comparison (view pins carry extra state). */
   isActiveOverride?: boolean;
+  /** Right-edge cue: agent spinner and/or unread count for issue pins. */
+  trailing?: React.ReactNode;
 }) {
   const { t } = useT("layout");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: pin.id });
@@ -248,6 +281,7 @@ function SortablePinItem({
             WebkitMaskImage: "linear-gradient(to right, black calc(100% - 12px), transparent)",
           }}
         >{label}</span>
+        {trailing}
         <Tooltip>
           <TooltipTrigger
             render={<span role="button" />}
@@ -264,6 +298,83 @@ function SortablePinItem({
         </Tooltip>
       </SidebarMenuButton>
     </SidebarMenuItem>
+  );
+}
+
+/**
+ * Issue pin with live run/unread cues. Subscribes to the shared workspace
+ * agent-task snapshot and inbox list (same caches as the agents-working chip
+ * and Inbox nav) so N pinned issues do not fan out extra requests.
+ */
+function IssuePinRow({
+  pin,
+  href,
+  pathname,
+  onUnpin,
+  label,
+  iconNode,
+  isActive,
+  issueId,
+  wsId,
+}: {
+  pin: PinnedItem;
+  href: string;
+  pathname: string;
+  onUnpin: () => void;
+  label: string;
+  iconNode: React.ReactNode;
+  isActive: boolean;
+  issueId: string;
+  wsId: string;
+}) {
+  const selectTasks = useCallback(
+    (snapshot: AgentTask[]) => selectIssueTasks(snapshot, issueId),
+    [issueId],
+  );
+  const { data: taskGroups } = useQuery({
+    ...agentTaskSnapshotOptions(wsId),
+    select: selectTasks,
+  });
+  const { data: inboxItems = EMPTY_INBOX } = useQuery({
+    ...inboxListOptions(wsId),
+    enabled: !!wsId,
+  });
+
+  const isRunning =
+    (taskGroups?.running.length ?? 0) > 0 || (taskGroups?.queued.length ?? 0) > 0;
+  // While the user is on this issue, auto-read clears the inbox row — hide the
+  // badge so it does not flash against the open page (same idea as chat).
+  const unreadCount = isActive ? 0 : countUnreadInboxForIssue(inboxItems, issueId);
+
+  let trailing: React.ReactNode = null;
+  if (isRunning) {
+    trailing = (
+      <Loader2
+        className="ml-auto size-3 shrink-0 animate-spin text-muted-foreground"
+        aria-label="running"
+      />
+    );
+  } else if (unreadCount > 0) {
+    trailing = (
+      <CappedNumberFlow
+        value={unreadCount}
+        animated={false}
+        className="ml-auto text-caption"
+      />
+    );
+  }
+
+  return (
+    <SortablePinItem
+      pin={pin}
+      href={href}
+      pathname={pathname}
+      onUnpin={onUnpin}
+      label={label}
+      iconNode={iconNode}
+      isActiveOverride={isActive}
+      trailing={trailing}
+    />
   );
 }
 
@@ -372,6 +483,10 @@ function PinRow({
     if (issueQuery.isError || !issueQuery.data) return null;
     const issue = issueQuery.data;
     const label = issue.title;
+    // Canonical URL uses the identifier; UUID links still resolve but get
+    // rewritten — highlight must match the address bar the user sees.
+    const issueHref = p.issueDetail(issue.identifier || issue.id);
+    const isActive = isIssuePinPathActive(pathname, p.issueDetail, issue.id, issue.identifier);
     const iconNode = (
       /* Override parent [&_svg]:size-4 — pinned items need smaller icons to match sm size */
       <StatusIcon
@@ -383,13 +498,16 @@ function PinRow({
       />
     );
     return (
-      <SortablePinItem
+      <IssuePinRow
         pin={pin}
-        href={href}
+        href={issueHref}
         pathname={pathname}
         onUnpin={onUnpin}
         label={label}
         iconNode={iconNode}
+        isActive={isActive}
+        issueId={issue.id}
+        wsId={wsId}
       />
     );
   }
@@ -510,6 +628,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   });
   const deletePin = useDeletePin();
   const reorderPins = useReorderPins();
+  const queryClient = useQueryClient();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const sidebarFadeStyle = useScrollFade(sidebarScrollRef, 24);
@@ -547,7 +666,22 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   // View pins are absent here (their href resolves async): while a view
   // pin is active the plain nav row for its surface stays highlighted too.
   // Accepted — suppressing it would need every view detail lifted up here.
-  const isActivePinnedRoute = displayedPinned.some((pin) => pathname === getPinHref(pin));
+  // Issue pins: address bar uses identifier after rewrite; match UUID or
+  // cached identifier so "Issues" does not stay lit over an open pinned issue.
+  const isActivePinnedRoute = displayedPinned.some((pin) => {
+    if (pin.item_type === "issue" && wsId) {
+      const cached = queryClient.getQueryData<Issue>(
+        issueDetailOptions(wsId, pin.item_id).queryKey,
+      );
+      return isIssuePinPathActive(
+        pathname,
+        p.issueDetail,
+        pin.item_id,
+        cached?.identifier,
+      );
+    }
+    return pathname === getPinHref(pin);
+  });
 
   const handleDragStart = useCallback(() => {
     isDraggingRef.current = true;
@@ -567,7 +701,6 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     [localPinned, reorderPins],
   );
 
-  const queryClient = useQueryClient();
   const acceptInvitationMut = useMutation({
     mutationFn: (id: string) => api.acceptInvitation(id),
     // After accepting an invitation, navigate INTO the newly-joined workspace.

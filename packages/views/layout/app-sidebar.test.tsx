@@ -9,13 +9,15 @@ import { ApiError } from "@multica/core/api";
 import { renderWithI18n } from "../test/i18n";
 import { AppSidebar } from "./app-sidebar";
 
-const { appForeground, chatSessions, chatStore, detail, deletePin, invitationApi, navigation, pins, sidebarState, summary, workspaces } = vi.hoisted(() => ({
+const { appForeground, chatSessions, chatStore, detail, deletePin, invitationApi, navigation, pins, sidebarState, summary, workspaces, inboxList, agentTasks } = vi.hoisted(() => ({
   appForeground: { current: true },
   sidebarState: { setOpenMobile: vi.fn() },
   chatSessions: { current: [] as { id?: string; unread_count?: number }[] },
   chatStore: { current: { activeSessionId: null as string | null, isOpen: false } },
   detail: { current: { isPending: false, isError: false, data: null as unknown, error: null as unknown } },
   deletePin: vi.fn(),
+  inboxList: { current: [] as { issue_id: string | null; read: boolean; archived: boolean }[] },
+  agentTasks: { current: [] as { issue_id: string; status: string }[] },
   // Captures the sidebar's invitation accept/decline mutations so the
   // self-heal wiring (error → invalidate the pending list) is observable.
   invitationApi: {
@@ -166,6 +168,7 @@ vi.mock("@multica/core/api", async (importOriginal) => {
 });
 vi.mock("@multica/core/inbox/queries", () => ({
   inboxUnreadSummaryOptions: () => ({ queryKey: ["inbox", "unread-summary"] }),
+  inboxListOptions: () => ({ queryKey: ["inbox", "list"] }),
   // The nav badge and the switcher dot read the SAME cross-workspace summary,
   // so the fixture that drives one drives the other.
   useInboxUnreadCount: (currentWsId: string | null) =>
@@ -177,7 +180,12 @@ vi.mock("@multica/core/inbox/queries", () => ({
   unreadWorkspaceIds: (entries: { workspace_id: string; count: number }[]) =>
     new Set(entries.filter((s) => s.count > 0).map((s) => s.workspace_id)),
 }));
-vi.mock("@multica/core/issues/queries", () => ({ issueDetailOptions: () => ({ queryKey: ["issue"] }) }));
+vi.mock("@multica/core/agents", () => ({
+  agentTaskSnapshotOptions: () => ({ queryKey: ["agents", "task-snapshot"] }),
+}));
+vi.mock("@multica/core/issues/queries", () => ({
+  issueDetailOptions: (_wsId: string, id: string) => ({ queryKey: ["issue", id] }),
+}));
 vi.mock("@multica/core/issues/stores/create-mode-store", () => ({
   useCreateModeStore: { getState: () => ({ lastMode: "agent" }) },
   openCreateIssueWithPreference: vi.fn(),
@@ -198,15 +206,64 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
     invitationApi.mutations.push(options);
     return { isPending: false, mutate: vi.fn() };
   },
-  useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
+  useQuery: ({
+    queryKey,
+    select,
+  }: {
+    queryKey: readonly unknown[];
+    select?: (data: unknown) => unknown;
+  }) => {
     if (queryKey[0] === "pins") return { data: pins.current };
-    if (queryKey[0] === "issue") return detail.current;
+    if (queryKey[0] === "issue") {
+      const issueId = String(queryKey[1] ?? "");
+      const base = detail.current;
+      if (!base.data || typeof base.data !== "object") return base;
+      const data = base.data as { identifier?: string; title?: string; status?: string; id?: string };
+      // Per-pin identity: keep titles shared when the fixture sets one, but
+      // bind identifier/id to the queried issue so active-path matching and
+      // hrefs do not collapse every pin onto one canonical URL.
+      return {
+        ...base,
+        data: {
+          ...data,
+          id: data.id ?? issueId,
+          identifier: data.identifier?.includes("${id}")
+            ? data.identifier.replace("${id}", issueId)
+            : (data.identifier ?? issueId),
+        },
+      };
+    }
     if (queryKey[0] === "inbox" && queryKey[1] === "unread-summary") return { data: summary.current };
+    if (queryKey[0] === "inbox" && queryKey[1] === "list") return { data: inboxList.current };
+    if (queryKey[0] === "agents" && queryKey[1] === "task-snapshot") {
+      const data = agentTasks.current;
+      return { data: select ? select(data) : data };
+    }
     if (queryKey[0] === "workspaces") return { data: workspaces.current };
     if (queryKey[0] === "chat" && queryKey[2] === "sessions") return { data: chatSessions.current };
     return { data: [] };
   },
-  useQueryClient: () => ({ fetchQuery: vi.fn(), invalidateQueries: invitationApi.invalidateQueries }),
+  useQueryClient: () => ({
+    fetchQuery: vi.fn(),
+    invalidateQueries: invitationApi.invalidateQueries,
+    getQueryData: (queryKey: readonly unknown[]) => {
+      if (queryKey[0] === "issue") {
+        const issueId = String(queryKey[2] ?? queryKey[1] ?? "");
+        // issueDetailOptions key is ["issues", wsId, "detail", id] in prod,
+        // but the test mock uses ["issue", id].
+        const id = queryKey[0] === "issue" ? String(queryKey[1] ?? "") : issueId;
+        const data = detail.current.data;
+        if (!data || typeof data !== "object") return data;
+        const row = data as { identifier?: string; title?: string; status?: string; id?: string };
+        return {
+          ...row,
+          id: row.id ?? id,
+          identifier: row.identifier ?? id,
+        };
+      }
+      return undefined;
+    },
+  }),
 }));
 
 describe("PinRow", () => {
@@ -216,6 +273,8 @@ describe("PinRow", () => {
     detail.current = { isPending: false, isError: false, data: null, error: null };
     summary.current = [];
     workspaces.current = [];
+    inboxList.current = [];
+    agentTasks.current = [];
   });
 
   it("unpins missing details", async () => {
@@ -238,11 +297,12 @@ describe("PinRow", () => {
   });
 
   it("does not also highlight the parent workspace nav for an active pin", async () => {
-    navigation.current.pathname = "/acme/issues/issue-1";
+    // Address bar uses the human identifier after canonical rewrite.
+    navigation.current.pathname = "/acme/issues/MUL-123";
     detail.current = {
       isPending: false,
       isError: false,
-      data: { identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
       error: null,
     };
 
@@ -255,6 +315,69 @@ describe("PinRow", () => {
     expect(container.querySelector('button[data-href="/acme/issues"]')).not.toHaveAttribute("data-active");
   });
 
+  it("highlights the pin when the route still uses the UUID spelling", async () => {
+    navigation.current.pathname = "/acme/issues/issue-1";
+    detail.current = {
+      isPending: false,
+      isError: false,
+      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      error: null,
+    };
+
+    render(<AppSidebar />);
+    expect((await screen.findByText("Keep this pin")).closest("button")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+  });
+
+  it("shows a running spinner while an agent task is active on the pinned issue", async () => {
+    detail.current = {
+      isPending: false,
+      isError: false,
+      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      error: null,
+    };
+    agentTasks.current = [{ issue_id: "issue-1", status: "running" }];
+
+    render(<AppSidebar />);
+    expect(await screen.findByLabelText("running")).toBeInTheDocument();
+  });
+
+  it("badges unread inbox count when the agent is idle", async () => {
+    detail.current = {
+      isPending: false,
+      isError: false,
+      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      error: null,
+    };
+    inboxList.current = [
+      { issue_id: "issue-1", read: false, archived: false },
+      { issue_id: "issue-1", read: false, archived: false },
+      { issue_id: "issue-1", read: true, archived: false },
+      { issue_id: "other", read: false, archived: false },
+    ];
+
+    render(<AppSidebar />);
+    const pin = (await screen.findByText("Keep this pin")).closest("button");
+    expect(pin?.querySelector("number-flow-react")).toHaveAttribute("aria-label", "2");
+  });
+
+  it("hides unread while the pinned issue is the open page", async () => {
+    navigation.current.pathname = "/acme/issues/MUL-123";
+    detail.current = {
+      isPending: false,
+      isError: false,
+      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      error: null,
+    };
+    inboxList.current = [{ issue_id: "issue-1", read: false, archived: false }];
+
+    render(<AppSidebar />);
+    const pin = (await screen.findByText("Keep this pin")).closest("button");
+    expect(pin?.querySelector("number-flow-react")).toBeNull();
+  });
+
   it("keeps the parent route active until a hidden pin is expanded", () => {
     const originalPins = pins.current;
     pins.current = Array.from({ length: 6 }, (_, index) => ({
@@ -264,10 +387,11 @@ describe("PinRow", () => {
       position: index,
     }));
     navigation.current.pathname = "/acme/issues/issue-6";
+    // No shared identifier — each pin's href falls back to its item id.
     detail.current = {
       isPending: false,
       isError: false,
-      data: { identifier: "MUL-123", title: "Pinned issue", status: "todo" },
+      data: { title: "Pinned issue", status: "todo" },
       error: null,
     };
 

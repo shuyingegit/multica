@@ -206,6 +206,24 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
     invitationApi.mutations.push(options);
     return { isPending: false, mutate: vi.fn() };
   },
+  useQueries: ({ queries }: { queries: { queryKey: readonly unknown[] }[] }) =>
+    queries.map((query) => {
+      if (query.queryKey[0] === "issue") {
+        const issueId = String(query.queryKey[1] ?? "");
+        const base = detail.current;
+        if (!base.data || typeof base.data !== "object") return base;
+        const data = base.data as { identifier?: string; title?: string; status?: string; id?: string };
+        return {
+          ...base,
+          data: {
+            ...data,
+            id: data.id ?? issueId,
+            identifier: data.identifier ?? issueId,
+          },
+        };
+      }
+      return { data: undefined };
+    }),
   useQuery: ({
     queryKey,
     select,
@@ -342,6 +360,21 @@ describe("PinRow", () => {
 
     render(<AppSidebar />);
     expect(await screen.findByLabelText("running")).toBeInTheDocument();
+  });
+
+  it("highlights via identifier segment even when the full href spelling differs", async () => {
+    navigation.current.pathname = "/acme/issues/mul-123";
+    detail.current = {
+      isPending: false,
+      isError: false,
+      data: { id: "issue-1", identifier: "MUL-123", title: "Keep this pin", status: "todo" },
+      error: null,
+    };
+
+    render(<AppSidebar />);
+    const pin = (await screen.findByText("Keep this pin")).closest("button");
+    expect(pin).toHaveAttribute("data-active", "true");
+    expect(pin?.className).toContain("bg-sidebar-accent");
   });
 
   it("badges unread inbox count when the agent is idle", async () => {

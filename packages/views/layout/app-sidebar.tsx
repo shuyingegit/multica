@@ -68,7 +68,7 @@ import {
 import { useCurrentWorkspace, useWorkspacePaths, paths } from "@multica/core/paths";
 import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@multica/core/workspace/queries";
 import { resolvePublicFileUrl } from "@multica/core/workspace/avatar-url";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { inboxListOptions, inboxUnreadSummaryOptions, useInboxUnreadCount, hasOtherWorkspaceUnread, unreadWorkspaceIds } from "@multica/core/inbox/queries";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { countUnreadChatMessages } from "@multica/core/chat/unread";
@@ -177,16 +177,40 @@ const NAV_ITEM_CLASS_NAME =
 const EMPTY_INBOX: InboxItem[] = [];
 
 /**
+ * Last `/issues/<segment>` segment of a path, URL-decoded. Null when the
+ * path is not an issue detail route.
+ */
+export function issueDetailSegment(pathname: string): string | null {
+  const match = /\/issues\/([^/]+)\/?$/.exec(pathname);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
  * Issue detail URLs are rewritten to the human identifier (MUL-123) after
  * load, but pins store the UUID. Match either spelling so the pinned row
  * stays highlighted on the page the user is actually looking at.
  */
-function isIssuePinPathActive(
+export function isIssuePinPathActive(
   pathname: string,
   issueDetailHref: (id: string) => string,
   issueId: string,
   identifier?: string | null,
 ): boolean {
+  const segment = issueDetailSegment(pathname);
+  if (segment) {
+    if (segment === issueId) return true;
+    if (identifier && segment === identifier) return true;
+    // Identifiers are case-insensitive on the server; match that here so a
+    // mixed-case address bar still lights the pin.
+    if (identifier && segment.toLowerCase() === identifier.toLowerCase()) {
+      return true;
+    }
+  }
   if (pathname === issueDetailHref(issueId)) return true;
   if (identifier && pathname === issueDetailHref(identifier)) return true;
   return false;
@@ -270,6 +294,10 @@ function SortablePinItem({
         }}
         className={cn(
           "text-muted-foreground hover:not-data-active:bg-sidebar-accent/70 data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground",
+          // Force the accent fill when active. Pin rows render through AppLink
+          // + dnd listeners; relying only on data-active has been flaky for
+          // operators verifying the highlight. Matching the Work nav look.
+          isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
           isDragging && "pointer-events-none",
         )}
       >
@@ -349,17 +377,19 @@ function IssuePinRow({
   let trailing: React.ReactNode = null;
   if (isRunning) {
     trailing = (
-      <Loader2
-        className="ml-auto size-3 shrink-0 animate-spin text-muted-foreground"
-        aria-label="running"
-      />
+      <span className="ml-auto flex shrink-0 items-center gap-1 text-caption text-muted-foreground">
+        <Loader2 className="size-3 animate-spin text-brand" aria-hidden />
+        <span className="tabular-nums" aria-label="running">
+          ···
+        </span>
+      </span>
     );
   } else if (unreadCount > 0) {
     trailing = (
       <CappedNumberFlow
         value={unreadCount}
         animated={false}
-        className="ml-auto text-caption"
+        className="ml-auto text-caption font-medium text-foreground"
       />
     );
   }
@@ -663,16 +693,32 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   const visiblePinned = localPinnedWsId === (wsId ?? null) ? localPinned : EMPTY_PINS;
   const pinsExpanded = expandedPinsWorkspaceId === wsId;
   const displayedPinned = pinsExpanded ? visiblePinned : visiblePinned.slice(0, PINNED_PREVIEW_LIMIT);
+  // Subscribe to every displayed issue pin's detail so identifier-based
+  // active matching re-renders when the cache fills (getQueryData alone
+  // would leave "Issues" lit until an unrelated parent update).
+  const displayedIssuePins = displayedPinned.filter((pin) => pin.item_type === "issue");
+  const pinnedIssueDetails = useQueries({
+    queries: displayedIssuePins.map((pin) => ({
+      ...issueDetailOptions(wsId ?? "", pin.item_id),
+      enabled: !!wsId,
+    })),
+  });
+  const pinnedIssueById = React.useMemo(() => {
+    const map = new Map<string, Issue>();
+    displayedIssuePins.forEach((pin, index) => {
+      const data = pinnedIssueDetails[index]?.data;
+      if (data) map.set(pin.item_id, data);
+    });
+    return map;
+  }, [displayedIssuePins, pinnedIssueDetails]);
   // View pins are absent here (their href resolves async): while a view
   // pin is active the plain nav row for its surface stays highlighted too.
   // Accepted — suppressing it would need every view detail lifted up here.
   // Issue pins: address bar uses identifier after rewrite; match UUID or
-  // cached identifier so "Issues" does not stay lit over an open pinned issue.
+  // loaded identifier so "Issues" does not stay lit over an open pinned issue.
   const isActivePinnedRoute = displayedPinned.some((pin) => {
-    if (pin.item_type === "issue" && wsId) {
-      const cached = queryClient.getQueryData<Issue>(
-        issueDetailOptions(wsId, pin.item_id).queryKey,
-      );
+    if (pin.item_type === "issue") {
+      const cached = pinnedIssueById.get(pin.item_id);
       return isIssuePinPathActive(
         pathname,
         p.issueDetail,

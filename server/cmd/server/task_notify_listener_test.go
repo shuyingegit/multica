@@ -3,22 +3,24 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/multica-ai/multica/server/internal/notify"
 )
 
-func TestBuildCompletedContentIncludesCommentDeepLink(t *testing.T) {
-	got := buildCompletedContent(
+func TestBuildTaskEndContentIncludesCommentDeepLink(t *testing.T) {
+	got := notify.BuildTaskEndContent(
+		"completed",
 		"Multica 改版",
 		"飞云箭",
-		"已经修好了",
+		"已经修好了推送预览三行要义",
 		"https://app.example",
 		"scsoi",
 		"SCS-268",
 		"01a0b4ed-d4f5-7e18-bf3f-b35fd2b35f08",
 	)
 	for _, want := range []string{
-		"Multica 改版",
+		"修好了",
 		"飞云箭 已回复",
-		"已经修好了",
 		"https://app.example/scsoi/issues/SCS-268#comment-01a0b4ed-d4f5-7e18-bf3f-b35fd2b35f08",
 	} {
 		if !strings.Contains(got, want) {
@@ -27,8 +29,11 @@ func TestBuildCompletedContentIncludesCommentDeepLink(t *testing.T) {
 	}
 }
 
-func TestBuildCompletedContentFallsBackWithoutComment(t *testing.T) {
-	got := buildCompletedContent("T", "A", "", "https://app.example", "ws", "A-1", "")
+func TestBuildTaskEndContentFallsBackWithoutBody(t *testing.T) {
+	got := notify.BuildTaskEndContent("completed", "T", "A", "", "https://app.example", "ws", "A-1", "")
+	if !strings.Contains(got, "T") {
+		t.Fatalf("expected issue title fallback, got %q", got)
+	}
 	if !strings.Contains(got, "https://app.example/ws/issues/A-1") {
 		t.Fatalf("expected issue link, got %q", got)
 	}
@@ -37,8 +42,8 @@ func TestBuildCompletedContentFallsBackWithoutComment(t *testing.T) {
 	}
 }
 
-func TestBuildFailedContentSkipsRetryNoiseShape(t *testing.T) {
-	got := buildFailedContent("Title", "Agent", "boom", "", "", "SCS-1", "")
+func TestBuildFailedContentShape(t *testing.T) {
+	got := notify.BuildTaskEndContent("failed", "Title", "Agent", "boom", "", "", "SCS-1", "")
 	if !strings.Contains(got, "boom") || !strings.Contains(got, "运行失败") {
 		t.Fatalf("unexpected: %q", got)
 	}
@@ -60,5 +65,15 @@ func TestRedactNotifyHost(t *testing.T) {
 	got := redactNotifyHost("https://scs-wx.example:4/wxsend")
 	if got != "https://scs-wx.example:4/…" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestBuildTaskEndTitle(t *testing.T) {
+	got := notify.BuildTaskEndTitle("SCS-268", "completed", "飞云箭", "Multica 改版", 8)
+	if !strings.HasPrefix(got, "SCS-268 ✓ 完成") {
+		t.Fatalf("got %q", got)
+	}
+	if !strings.Contains(got, "飞云箭") {
+		t.Fatalf("missing agent: %q", got)
 	}
 }

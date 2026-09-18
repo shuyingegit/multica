@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Channel is one outbound destination for a task-end alert.
@@ -70,10 +71,15 @@ func (c *ClawbotClient) Send(ctx context.Context, msg Message) error {
 	if channel == "" {
 		channel = ClawbotChannelID
 	}
-	title := truncateRunes(strings.TrimSpace(msg.Title), maxTitleRunes)
-	// Prefer 【scsoi】 prefix for ClawBot readability when missing.
-	if !strings.HasPrefix(title, "【scsoi】") {
-		title = "【scsoi】" + title
+	const prefix = "【scsoi】"
+	title := strings.TrimSpace(msg.Title)
+	// Prefer 【scsoi】 prefix for ClawBot readability; reserve budget so the
+	// packed ticket/agent/title still fits after the prefix.
+	if !strings.HasPrefix(title, prefix) {
+		reserve := utf8.RuneCountInString(prefix)
+		title = prefix + truncateRunes(title, maxTitleRunes-reserve)
+	} else {
+		title = truncateRunes(title, maxTitleRunes)
 	}
 	content := truncateRunes(strings.TrimSpace(msg.Content), maxContentRunes*2)
 

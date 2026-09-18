@@ -96,14 +96,20 @@ func handleTaskNotify(
 	identifier := service.IssueIdentifier(ws.IssuePrefix, issue.Number)
 	agentName := lookupAgentName(ctx, queries, agentID)
 
+	// ClawBot / WeChat preview ~3 lines: pack who+ticket into title, put the
+	// reply gist on content line 1 so “点击查看详情” above the fold still answers
+	// 哪个票 / 哪个人 / 哪件事.
+	const clawbotTitleReserve = 8 // room for 【scsoi】 prefix
 	var title, content string
 	switch kind {
 	case "completed":
-		title = identifier + " ✓ 完成"
 		reply := latestAgentReply(ctx, queries, issue, taskID)
-		content = buildCompletedContent(issue.Title, agentName, reply.Snippet, resolvedBase, ws.Slug, identifier, reply.CommentID)
+		title = notify.BuildTaskEndTitle(identifier, "completed", agentName, issue.Title, clawbotTitleReserve)
+		content = notify.BuildTaskEndContent(
+			"completed", issue.Title, agentName, reply.Snippet,
+			resolvedBase, ws.Slug, identifier, reply.CommentID,
+		)
 	default:
-		title = identifier + " ✗ 失败"
 		errText, _ := payload["error"].(string)
 		if errText == "" {
 			errText, _ = payload["failure_reason"].(string)
@@ -111,7 +117,19 @@ func handleTaskNotify(
 		// Prefer anchoring on the newest agent/system note for this task when
 		// present so the push opens at the failure message, not the issue top.
 		reply := latestAgentReply(ctx, queries, issue, taskID)
-		content = buildFailedContent(issue.Title, agentName, errText, resolvedBase, ws.Slug, identifier, reply.CommentID)
+		body := errText
+		if reply.Snippet != "" {
+			// Prefer the agent note gist when present; keep error as fallback.
+			body = reply.Snippet
+			if errText != "" && !strings.Contains(reply.Snippet, errText) {
+				body = reply.Snippet + "\n" + errText
+			}
+		}
+		title = notify.BuildTaskEndTitle(identifier, "failed", agentName, issue.Title, clawbotTitleReserve)
+		content = notify.BuildTaskEndContent(
+			"failed", issue.Title, agentName, body,
+			resolvedBase, ws.Slug, identifier, reply.CommentID,
+		)
 	}
 
 	msg := notify.Message{Title: title, Content: content}
@@ -185,60 +203,11 @@ func latestAgentReply(ctx context.Context, queries *db.Queries, issue db.Issue, 
 	return fallback
 }
 
-func buildCompletedContent(title, agentName, snippet, appBase, slug, identifier, commentID string) string {
-	var b strings.Builder
-	b.WriteString(title)
-	if agentName != "" {
-		b.WriteString("\n")
-		b.WriteString(agentName)
-		b.WriteString(" 已回复")
-	}
-	if snippet != "" {
-		b.WriteString("\n\n")
-		b.WriteString(snippet)
-	}
-	if link := issueDeepLink(appBase, slug, identifier, commentID); link != "" {
-		b.WriteString("\n\n")
-		b.WriteString(link)
-	}
-	return b.String()
-}
-
-func buildFailedContent(title, agentName, errText, appBase, slug, identifier, commentID string) string {
-	var b strings.Builder
-	b.WriteString(title)
-	if agentName != "" {
-		b.WriteString("\n")
-		b.WriteString(agentName)
-		b.WriteString(" 运行失败")
-	}
-	if errText != "" {
-		b.WriteString("\n\n")
-		b.WriteString(notify.StripMarkdownLight(errText))
-	}
-	if link := issueDeepLink(appBase, slug, identifier, commentID); link != "" {
-		b.WriteString("\n\n")
-		b.WriteString(link)
-	}
-	return b.String()
-}
-
 // issueDeepLink builds a deep link into the issue page. When commentID is set,
 // appends #comment-{id} so the web client scrolls/highlights that message
 // (see packages/views/issues/components/issue-detail-route.tsx).
 func issueDeepLink(appBase, slug, identifier, commentID string) string {
-	appBase = strings.TrimRight(strings.TrimSpace(appBase), "/")
-	slug = strings.Trim(strings.TrimSpace(slug), "/")
-	identifier = strings.TrimSpace(identifier)
-	if appBase == "" || slug == "" || identifier == "" {
-		return ""
-	}
-	link := appBase + "/" + slug + "/issues/" + identifier
-	commentID = strings.TrimSpace(commentID)
-	if commentID != "" {
-		link += "#comment-" + commentID
-	}
-	return link
+	return notify.JoinIssueDeepLink(appBase, slug, identifier, commentID)
 }
 
 func redactNotifyHost(raw string) string {

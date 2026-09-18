@@ -1930,6 +1930,16 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // the timeline (and the deep-link target id) has actually rendered.
   useEffect(() => {
     if (!highlightCommentId || items.length === 0) return;
+    if (highlightCommentId === "latest") {
+      const container = scrollContainerEl;
+      if (!container) return;
+      const jump = () => {
+        container.scrollTop = container.scrollHeight;
+      };
+      jump();
+      const t = window.setTimeout(jump, 50);
+      return () => window.clearTimeout(t);
+    }
     // An explicit replay request (re-click on the already-open notification
     // row): the host cleared the memento entry and bumped the token, so
     // re-arm the landing guard and fall through to the jump.

@@ -46,6 +46,7 @@ export function useCanonicalIssueUrl(
 }
 
 export function parseCommentHighlightHash(hash: string): string | undefined {
+  if (hash === "#latest") return "latest";
   const match = /^#comment-([A-Za-z0-9_-]+)$/.exec(hash);
   return match?.[1];
 }
@@ -78,6 +79,14 @@ export function IssueDetailRoute({ routeId, onDelete }: IssueDetailRouteProps) {
   const wsId = useWorkspaceId();
   const { canonicalId, issue, isResolving, notFound } = useCanonicalIssue(wsId, routeId);
   const highlight = useCommentHighlightHash();
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   useCanonicalIssueUrl(routeId, issue?.identifier, highlight.hash);
 
@@ -94,6 +103,7 @@ export function IssueDetailRoute({ routeId, onDelete }: IssueDetailRouteProps) {
       issueId={canonicalId}
       onDelete={onDelete}
       highlightCommentId={highlight.commentId}
+      defaultSidebarOpen={!narrow}
     />
   );
 }

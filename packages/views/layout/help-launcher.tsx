@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   BookOpen,
@@ -30,10 +31,39 @@ const CHANGELOG_URL = "https://multica.ai/changelog";
 // self-hosted backend once installed. A self-host-relative /download would
 // only serve a copy of this page that still has to reach our release assets.
 const DOWNLOAD_URL = "https://multica.ai/download";
+const OFFICIAL_LATEST_RELEASE_URL =
+  "https://api.github.com/repos/multica-ai/multica/releases/latest";
+
+/** Public GitHub latest release tag for multica-ai/multica. Best-effort. */
+export async function fetchOfficialLatestVersion(
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  try {
+    const res = await fetchImpl(OFFICIAL_LATEST_RELEASE_URL, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (
+      data &&
+      typeof data === "object" &&
+      "tag_name" in data &&
+      typeof (data as { tag_name: unknown }).tag_name === "string"
+    ) {
+      const tag = (data as { tag_name: string }).tag_name.trim();
+      return tag || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export function HelpLauncher() {
   const { t } = useT("layout");
   const serverVersion = useConfigStore((state) => state.serverVersion);
+  const upstreamBaseVersion = useConfigStore((state) => state.upstreamBaseVersion);
+  const [officialLatest, setOfficialLatest] = useState<string | null>(null);
   // Web-only: offering "download the desktop app" inside the desktop app is
   // nonsense, and this sidebar is shared — apps/desktop renders the same
   // AppSidebar as the web dashboard, so the entry has to be gated here.
@@ -44,6 +74,38 @@ export function HelpLauncher() {
   // markup matches either way, so the link can ship in the SSR payload instead
   // of popping in a frame late.
   const desktop = isDesktopShell();
+
+  useEffect(() => {
+    // Only self-hosted Help rows show version info; skip the GitHub call when
+    // there is nothing to annotate.
+    if (!serverVersion && !upstreamBaseVersion) return;
+    let cancelled = false;
+    void fetchOfficialLatestVersion().then((tag) => {
+      if (!cancelled) setOfficialLatest(tag);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverVersion, upstreamBaseVersion]);
+
+  const showVersionRow = !!serverVersion || !!upstreamBaseVersion;
+
+  let officialLine: string | null = null;
+  if (upstreamBaseVersion && officialLatest) {
+    officialLine = t(($) => $.help.official_base_with_latest, {
+      base: upstreamBaseVersion,
+      latest: officialLatest,
+    });
+  } else if (upstreamBaseVersion) {
+    officialLine = t(($) => $.help.official_base_only, {
+      base: upstreamBaseVersion,
+    });
+  } else if (officialLatest) {
+    officialLine = t(($) => $.help.official_latest_only, {
+      latest: officialLatest,
+    });
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -57,7 +119,7 @@ export function HelpLauncher() {
         align="end"
         side="top"
         sideOffset={8}
-        className="min-w-40 max-w-56"
+        className="min-w-40 max-w-72"
       >
         {!desktop && (
           <>
@@ -114,7 +176,7 @@ export function HelpLauncher() {
           <MessageCircle className="h-3.5 w-3.5" />
           {t(($) => $.help.feedback)}
         </DropdownMenuItem>
-        {serverVersion && (
+        {showVersionRow && (
           <>
             <DropdownMenuSeparator />
             {/* DropdownMenuLabel renders Base UI's Menu.GroupLabel, which reads
@@ -123,8 +185,11 @@ export function HelpLauncher() {
                 Help menu crashes the whole app on open (no error boundary sits
                 above the sidebar). */}
             <DropdownMenuGroup>
-              <DropdownMenuLabel className="font-normal break-words">
-                {t(($) => $.help.server_version, { version: serverVersion })}
+              <DropdownMenuLabel className="font-normal break-words space-y-0.5">
+                {serverVersion && (
+                  <div>{t(($) => $.help.server_version, { version: serverVersion })}</div>
+                )}
+                {officialLine && <div>{officialLine}</div>}
               </DropdownMenuLabel>
             </DropdownMenuGroup>
           </>

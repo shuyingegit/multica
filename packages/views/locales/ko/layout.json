@@ -34,7 +34,10 @@
     "changelog": "변경 로그",
     "discord": "Discord",
     "feedback": "피드백",
-    "server_version": "서버 버전 {{version}}"
+    "server_version": "서버 버전 {{version}}",
+    "official_base_with_latest": "공식 {{base}} 기반（최신 {{latest}}）",
+    "official_base_only": "공식 {{base}} 기반",
+    "official_latest_only": "공식 최신 {{latest}}"
   },
   "workspace_loader": {
     "loading_workspace": "워크스페이스 로딩 중...",

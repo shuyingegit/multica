@@ -34,7 +34,10 @@
     "changelog": "変更ログ",
     "discord": "Discord",
     "feedback": "フィードバック",
-    "server_version": "サーバーバージョン {{version}}"
+    "server_version": "サーバーバージョン {{version}}",
+    "official_base_with_latest": "公式 {{base}} ベース（最新 {{latest}}）",
+    "official_base_only": "公式 {{base}} ベース",
+    "official_latest_only": "公式最新 {{latest}}"
   },
   "workspace_loader": {
     "loading_workspace": "ワークスペースを読み込み中…",

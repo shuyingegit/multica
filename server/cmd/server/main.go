@@ -38,8 +38,9 @@ import (
 )
 
 var (
-	version = "dev"
-	commit  = "unknown"
+	version         = "dev"
+	commit          = "unknown"
+	upstreamVersion = ""
 )
 
 func newNamedRedisClient(base *redis.UniversalOptions, suffix string) redis.UniversalClient {

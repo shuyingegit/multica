@@ -319,11 +319,13 @@ cli: ## Run the multica CLI with ARGS or MULTICA_ARGS from source
 	@$(MAKE) multica MULTICA_ARGS="$(MULTICA_ARGS)"
 
 multica: ## Run the multica CLI entrypoint directly from the Go source tree
-	cd server && go run -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)" ./cmd/multica $(MULTICA_ARGS)
+	cd server && go run -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.upstreamVersion=$(UPSTREAM_VERSION)" ./cmd/multica $(MULTICA_ARGS)
 
 VERSION ?= $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+# Official Multica tag this fork was last synced to (Help popover "基于官方").
+UPSTREAM_VERSION ?= $(shell tr -d '[:space:]' < UPSTREAM_BASE 2>/dev/null || git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "")
 # Windows will not execute an extensionless binary, so a source build there has
 # to name its outputs the way the target platform expects — otherwise the CLI
 # builds fine and then fails to re-exec itself as a daemon (#7255). GOOS reaches
@@ -337,8 +339,8 @@ DATE    ?= $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 # checkouts with no Go toolchain installed.
 build: EXE = $(if $(filter windows,$(or $(GOOS),$(shell go env GOOS))),.exe,)
 build: ## Build the server, CLI, and migrate binaries into server/bin
-	cd server && go build -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)" -o bin/server$(EXE) ./cmd/server
-	cd server && go build -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)" -o bin/multica$(EXE) ./cmd/multica
+	cd server && go build -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.upstreamVersion=$(UPSTREAM_VERSION)" -o bin/server$(EXE) ./cmd/server
+	cd server && go build -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE) -X main.upstreamVersion=$(UPSTREAM_VERSION)" -o bin/multica$(EXE) ./cmd/multica
 	cd server && go build -o bin/migrate$(EXE) ./cmd/migrate
 
 test: ## Run Go tests after ensuring the target DB exists and migrations are applied

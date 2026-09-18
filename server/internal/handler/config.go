@@ -94,6 +94,10 @@ type AppConfig struct {
 	// which is continuously deployed so its users can't act on the version —
 	// and empty for dev builds that aren't stamped via -X main.version.
 	ServerVersion string `json:"server_version,omitempty"`
+	// UpstreamBaseVersion is the official Multica release tag this fork was
+	// last synced from at build time. Shown beside ServerVersion so operators
+	// know which upstream they are on; omitted when not stamped.
+	UpstreamBaseVersion string `json:"upstream_base_version,omitempty"`
 }
 
 // GetConfig is mounted on the public (unauthenticated) route group because
@@ -123,6 +127,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	// the Help popover's version row would just be noise there (MUL-4108).
 	if !isOfficialCloudDeployment() {
 		config.ServerVersion = h.cfg.ServerVersion
+		config.UpstreamBaseVersion = h.cfg.UpstreamBaseVersion
 	}
 
 	// Re-read from env on every request so operators can rotate keys via

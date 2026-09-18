@@ -16,8 +16,15 @@ COPY server/ ./server/
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG DATE=unknown
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o bin/server ./cmd/server
-RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" -o bin/multica ./cmd/multica
+# Official Multica release this fork build was synced from (Help popover).
+ARG UPSTREAM_VERSION=
+COPY UPSTREAM_BASE ./UPSTREAM_BASE
+RUN UV="${UPSTREAM_VERSION}"; \
+    if [ -z "$$UV" ] && [ -f UPSTREAM_BASE ]; then UV=$$(tr -d '[:space:]' < UPSTREAM_BASE); fi; \
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.upstreamVersion=$${UV}" -o bin/server ./cmd/server
+RUN UV="${UPSTREAM_VERSION}"; \
+    if [ -z "$$UV" ] && [ -f UPSTREAM_BASE ]; then UV=$$(tr -d '[:space:]' < UPSTREAM_BASE); fi; \
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.upstreamVersion=$${UV}" -o bin/multica ./cmd/multica
 RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/migrate ./cmd/migrate
 RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/maintenance ./cmd/maintenance
 RUN cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/backfill_task_usage_hourly ./cmd/backfill_task_usage_hourly

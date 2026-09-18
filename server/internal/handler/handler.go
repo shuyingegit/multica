@@ -149,6 +149,11 @@ type Config struct {
 	// Surfaced through /api/config so self-hosted operators can confirm which
 	// server build is deployed. Empty in dev builds.
 	ServerVersion string
+	// UpstreamBaseVersion is the official Multica release this fork build was
+	// last synced from (stamped via -X main.upstreamVersion). Surfaced next to
+	// ServerVersion in the Help popover so operators can compare against the
+	// current official latest. Empty when not stamped.
+	UpstreamBaseVersion string
 }
 
 type cloudRuntimeProxy interface {

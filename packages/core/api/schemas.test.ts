@@ -1322,6 +1322,13 @@ describe("AppConfigSchema cdn_signed drift", () => {
     expect(AppConfigSchema.parse({ server_version: "1.2.3" }).server_version).toBe("1.2.3");
     expect(AppConfigSchema.parse({}).server_version).toBeUndefined();
   });
+
+  it("parses upstream_base_version when present", () => {
+    expect(AppConfigSchema.parse({ upstream_base_version: "v0.5.0" }).upstream_base_version).toBe(
+      "v0.5.0",
+    );
+    expect(AppConfigSchema.parse({}).upstream_base_version).toBeUndefined();
+  });
 });
 
 describe("InboxUnreadSummarySchema", () => {

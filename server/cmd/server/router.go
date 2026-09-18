@@ -201,6 +201,17 @@ func normalizeServerVersion(v string) string {
 	return v
 }
 
+// normalizeUpstreamVersion drops empty / placeholder stamps so /api/config
+// omits upstream_base_version when the binary was not built with a known
+// official base (local go run, or a docker build that forgot the arg).
+func normalizeUpstreamVersion(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" || v == "unknown" || v == "dev" {
+		return ""
+	}
+	return v
+}
+
 // NewRouter creates the fully-configured Chi router with all middleware and routes.
 // rdb is optional: when non-nil the runtime local-skill request stores are
 // swapped for Redis-backed implementations so multiple API nodes share the
@@ -437,6 +448,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		LLMDefaultModel:          strings.TrimSpace(os.Getenv("MULTICA_LLM_DEFAULT_MODEL")),
 		LLMMaxRetries:            opts.LLMMaxRetries,
 		ServerVersion:            normalizeServerVersion(version),
+		UpstreamBaseVersion:      normalizeUpstreamVersion(upstreamVersion),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	invitationRateLimits := handler.DefaultInvitationRateLimits()

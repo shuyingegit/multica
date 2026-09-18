@@ -34,7 +34,10 @@
     "changelog": "Journal des modifications",
     "discord": "Discord",
     "feedback": "Faire un retour",
-    "server_version": "Version du serveur {{version}}"
+    "server_version": "Version du serveur {{version}}",
+    "official_base_with_latest": "Basé sur l'officiel {{base}} (dernier {{latest}})",
+    "official_base_only": "Basé sur l'officiel {{base}}",
+    "official_latest_only": "Dernière version officielle {{latest}}"
   },
   "workspace_loader": {
     "loading_workspace": "Chargement de l'espace de travail…",

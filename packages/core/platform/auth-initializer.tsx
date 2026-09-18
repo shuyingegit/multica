@@ -81,6 +81,7 @@ export function AuthInitializer({
         });
         configStore.getState().setFeatureFlags(cfg.feature_flags);
         configStore.getState().setServerVersion(cfg.server_version);
+        configStore.getState().setUpstreamBaseVersion(cfg.upstream_base_version);
         // Absent on every server that predates the worktree save gate, which
         // is exactly when the client must not offer the mode (#7113).
         configStore

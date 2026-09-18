@@ -379,6 +379,16 @@ func TestGetConfigExposesServerVersion(t *testing.T) {
 	if cfg.ServerVersion != "1.2.3" {
 		t.Fatalf("server_version: want 1.2.3, got %q", cfg.ServerVersion)
 	}
+
+	testHandler.cfg.UpstreamBaseVersion = "v0.5.0"
+	w = httptest.NewRecorder()
+	testHandler.GetConfig(w, req)
+	if err := json.Unmarshal(w.Body.Bytes(), &cfg); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if cfg.UpstreamBaseVersion != "v0.5.0" {
+		t.Fatalf("upstream_base_version: want v0.5.0, got %q", cfg.UpstreamBaseVersion)
+	}
 }
 
 // TestGetConfigOmitsServerVersionOnOfficialCloud verifies the build version is
@@ -389,6 +399,7 @@ func TestGetConfigOmitsServerVersionOnOfficialCloud(t *testing.T) {
 	origCfg := testHandler.cfg
 	defer func() { testHandler.cfg = origCfg }()
 	testHandler.cfg.ServerVersion = "1.2.3"
+	testHandler.cfg.UpstreamBaseVersion = "v0.5.0"
 
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 
@@ -404,6 +415,9 @@ func TestGetConfigOmitsServerVersionOnOfficialCloud(t *testing.T) {
 	if cfg.ServerVersion != "" {
 		t.Fatalf("server_version: want omitted on official cloud, got %q", cfg.ServerVersion)
 	}
+	if cfg.UpstreamBaseVersion != "" {
+		t.Fatalf("upstream_base_version: want omitted on official cloud, got %q", cfg.UpstreamBaseVersion)
+	}
 
 	// Self-hosted: operator's own frontend origin -> version reported.
 	t.Setenv("MULTICA_APP_URL", "https://multica.self-hosted.example")
@@ -414,6 +428,9 @@ func TestGetConfigOmitsServerVersionOnOfficialCloud(t *testing.T) {
 	}
 	if cfg.ServerVersion != "1.2.3" {
 		t.Fatalf("server_version: want 1.2.3 on self-hosted, got %q", cfg.ServerVersion)
+	}
+	if cfg.UpstreamBaseVersion != "v0.5.0" {
+		t.Fatalf("upstream_base_version: want v0.5.0 on self-hosted, got %q", cfg.UpstreamBaseVersion)
 	}
 }
 

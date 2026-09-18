@@ -34,7 +34,10 @@
     "changelog": "更新日志",
     "discord": "Discord",
     "feedback": "反馈",
-    "server_version": "服务器版本 {{version}}"
+    "server_version": "服务器版本 {{version}}",
+    "official_base_with_latest": "基于官方 {{base}}（最新 {{latest}}）",
+    "official_base_only": "基于官方 {{base}}",
+    "official_latest_only": "官方最新 {{latest}}"
   },
   "workspace_loader": {
     "loading_workspace": "正在加载工作区...",

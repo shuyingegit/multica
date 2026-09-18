@@ -11,6 +11,7 @@ services:
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-unknown}
         DATE: ${DATE:-unknown}
+        UPSTREAM_VERSION: ${UPSTREAM_VERSION:-}
 
   frontend:
     image: multica-web:dev

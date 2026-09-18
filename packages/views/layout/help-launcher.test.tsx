@@ -1,10 +1,10 @@
 import { cloneElement, type ReactElement, type ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configStore } from "@multica/core/config";
 import enLayout from "../locales/en/layout.json";
 import { isDesktopShell } from "../platform/local-directory";
-import { HelpLauncher } from "./help-launcher";
+import { fetchOfficialLatestVersion, HelpLauncher } from "./help-launcher";
 
 // The download entry is gated on the desktop-shell probe, which reads a
 // preload-injected bridge that jsdom never has. Mock it so both platforms are
@@ -75,10 +75,21 @@ vi.mock("@multica/ui/components/ui/dropdown-menu", async () => {
 
 beforeEach(() => {
   vi.mocked(isDesktopShell).mockReturnValue(false);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response(JSON.stringify({ tag_name: "v9.9.9" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
 });
 
 afterEach(() => {
   configStore.getState().setServerVersion("");
+  configStore.getState().setUpstreamBaseVersion("");
+  vi.unstubAllGlobals();
 });
 
 describe("HelpLauncher", () => {
@@ -91,6 +102,18 @@ describe("HelpLauncher", () => {
     configStore.getState().setServerVersion("1.2.3");
     render(<HelpLauncher />);
     expect(screen.getByText("Server version 1.2.3")).toBeInTheDocument();
+  });
+
+  it("shows official base and latest beside the fork server version", async () => {
+    configStore.getState().setServerVersion("fork-20260918-173722");
+    configStore.getState().setUpstreamBaseVersion("v0.5.0");
+    render(<HelpLauncher />);
+    expect(screen.getByText("Server version fork-20260918-173722")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText("Based on official v0.5.0 (latest v9.9.9)"),
+      ).toBeInTheDocument();
+    });
   });
 
   // MUL-6462: after web onboarding the desktop download CTA was unreachable —
@@ -110,5 +133,21 @@ describe("HelpLauncher", () => {
     expect(screen.queryByText("Desktop app")).not.toBeInTheDocument();
     // The rest of the menu is unaffected by the gate.
     expect(screen.getByText("Docs")).toBeInTheDocument();
+  });
+});
+
+describe("fetchOfficialLatestVersion", () => {
+  it("reads tag_name from the GitHub releases payload", async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ tag_name: "v0.5.0" }), { status: 200 }),
+    );
+    await expect(fetchOfficialLatestVersion(fetchImpl as unknown as typeof fetch)).resolves.toBe(
+      "v0.5.0",
+    );
+  });
+
+  it("returns null on non-OK responses", async () => {
+    const fetchImpl = vi.fn(async () => new Response("nope", { status: 403 }));
+    await expect(fetchOfficialLatestVersion(fetchImpl as unknown as typeof fetch)).resolves.toBeNull();
   });
 });

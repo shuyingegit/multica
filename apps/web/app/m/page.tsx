@@ -1,21 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { useAuthStore } from "@multica/core/auth";
 import { pinListOptions } from "@multica/core/pins/queries";
 import { issueDetailOptions } from "@multica/core/issues/queries";
-import { workspaceListOptions } from "@multica/core/workspace/queries";
+import { api } from "@multica/core/api";
 import { AppLink } from "@multica/views/navigation";
-import { formatPinRelativeAge, usePinUnreadStore } from "@multica/core/pins";
-import type { Workspace } from "@multica/core/types";
-
-function lastWorkspaceSlug(): string {
-  if (typeof document === "undefined") return "";
-  const match = document.cookie.match(/(?:^|; )last_workspace_slug=([^;]*)/);
-  return match ? decodeURIComponent(match[1] ?? "") : "";
-}
+import { formatPinRelativeAge } from "@multica/core/pins";
+import { useMobileWorkspace } from "./workspace";
 
 function statusLabel(status: string | undefined): string {
   switch (status) {
@@ -38,54 +30,42 @@ function statusLabel(status: string | undefined): string {
   }
 }
 
-function pickWorkspace(workspaces: Workspace[], slug: string): Workspace | undefined {
-  if (slug) {
-    const hit = workspaces.find((w) => w.slug === slug);
-    if (hit) return hit;
-  }
-  return workspaces[0];
-}
-
-/**
- * Mobile pin tracker at /m. Same pin data as the desktop rail.
- * Opening a ticket lands on the newest message (#latest); unread pins do too
- * (the newest unread is the latest comment).
- */
 export default function MobilePinsPage() {
-  const router = useRouter();
-  const user = useAuthStore((s) => s.user);
-  const [preferredSlug, setPreferredSlug] = useState("");
-  const { data: workspaces = [], isLoading: wsLoading } = useQuery(workspaceListOptions());
-
-  useEffect(() => {
-    setPreferredSlug(lastWorkspaceSlug());
-  }, []);
-
-  const ws = useMemo(
-    () => pickWorkspace(workspaces, preferredSlug),
-    [workspaces, preferredSlug],
-  );
+  const { user, ws, ready } = useMobileWorkspace();
   const wsId = ws?.id ?? "";
   const slug = ws?.slug ?? "";
 
-  useEffect(() => {
-    if (!user && !wsLoading) {
-      router.replace("/login?next=/m");
-    }
-  }, [user, wsLoading, router]);
-
   const pinsQuery = useQuery({
     ...pinListOptions(wsId, user?.id ?? ""),
-    enabled: !!wsId && !!user?.id,
+    enabled: ready,
   });
+  const workQuery = useQuery({
+    queryKey: ["m-working", wsId],
+    queryFn: () => api.getWorkspaceWorkingAgents("issue"),
+    enabled: ready,
+    refetchInterval: 8000,
+  });
+
   const pins = pinsQuery.data ?? [];
   const issuePins = pins.filter((p) => p.item_type === "issue");
   const details = useQueries({
     queries: issuePins.map((pin) => ({
       ...issueDetailOptions(wsId, pin.item_id),
-      enabled: !!wsId,
+      enabled: ready,
     })),
   });
+
+  const workingByIssue = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const agent of workQuery.data ?? []) {
+      for (const issueId of agent.issue_ids ?? []) {
+        const names = map.get(issueId) ?? [];
+        names.push(agent.name);
+        map.set(issueId, names);
+      }
+    }
+    return map;
+  }, [workQuery.data]);
 
   const rows = issuePins
     .map((pin, i) => {
@@ -95,9 +75,7 @@ export default function MobilePinsPage() {
     })
     .sort((a, b) => Date.parse(b.activity) - Date.parse(a.activity));
 
-  const unreadOf = usePinUnreadStore((s) => s.unreadCounts);
-
-  if (!user || wsLoading || (wsId && pinsQuery.isPending)) {
+  if (!ready || pinsQuery.isPending) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-lg items-center justify-center px-4">
         <p className="text-muted-foreground">加载中…</p>
@@ -109,9 +87,7 @@ export default function MobilePinsPage() {
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col px-3 pb-28 pt-[max(0.75rem,env(safe-area-inset-top))]">
       <header className="mb-3 border-b border-border pb-3">
         <h1 className="text-title font-medium">关注的票</h1>
-        <p className="mt-1 text-caption text-muted-foreground">
-          {ws?.name ?? "工作区"} · 点卡片直接到最新一条
-        </p>
+        <p className="mt-1 text-caption text-muted-foreground">{ws?.name ?? "工作区"}</p>
       </header>
       <div className="flex flex-1 flex-col gap-2">
         {rows.length === 0 ? (
@@ -122,11 +98,11 @@ export default function MobilePinsPage() {
           rows.map(({ pin, issue, activity }) => {
             const title = issue?.title || "加载标题…";
             const id = issue?.identifier || "";
-            const segment = issue?.identifier || issue?.id || pin.item_id;
-            const unread = unreadOf[pin.item_id] ?? 0;
-            const href = slug ? `/${slug}/issues/${encodeURIComponent(segment)}#latest` : "#";
+            const segment = issue?.id || pin.item_id;
+            const href = `/m/i/${encodeURIComponent(segment)}`;
             const age = formatPinRelativeAge(activity);
             const status = statusLabel(issue?.status);
+            const workers = workingByIssue.get(pin.item_id) ?? workingByIssue.get(issue?.id ?? "") ?? [];
             return (
               <AppLink
                 key={pin.id}
@@ -135,38 +111,44 @@ export default function MobilePinsPage() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-body text-muted-foreground">{id || "…"}</span>
-                  <span className="flex items-center gap-2 text-caption text-muted-foreground">
-                    {status ? <span className="rounded-full border border-border px-2 py-0.5">{status}</span> : null}
-                    {unread > 0 ? (
-                      <span className="rounded-full bg-brand px-2 py-0.5 text-brand-foreground">{unread}</span>
-                    ) : null}
-                    {age}
-                  </span>
+                  <span className="text-caption text-muted-foreground">{age}</span>
                 </div>
                 <p className="mt-1 text-body font-medium leading-snug">{title}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {workers.length > 0 ? (
+                    <span className="rounded-full bg-brand/15 px-2 py-0.5 text-caption text-foreground">
+                      {workers.join("、")} 正在处理
+                    </span>
+                  ) : null}
+                  {status ? (
+                    <span className="rounded-full border border-border px-2 py-0.5 text-caption text-muted-foreground">
+                      {status}
+                    </span>
+                  ) : null}
+                </div>
               </AppLink>
             );
           })
         )}
       </div>
-      {slug ? (
-        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 px-3 py-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="mx-auto flex max-w-lg gap-2">
-            <AppLink
-              href={`/${slug}/issues?create=1`}
-              className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand px-3 text-body text-brand-foreground"
-            >
-              新建票
-            </AppLink>
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+        <div className="mx-auto flex max-w-lg gap-2">
+          <AppLink
+            href="/m/new"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand px-3 text-body text-brand-foreground"
+          >
+            新建票
+          </AppLink>
+          {slug ? (
             <AppLink
               href={`/${slug}`}
               className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-border px-3 text-body"
             >
-              打开工作区
+              电脑版
             </AppLink>
-          </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </main>
   );
 }

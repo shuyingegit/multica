@@ -1374,6 +1374,9 @@
     "discard": "取消更改",
     "readonly_hint": "仅工作区所有者或管理员可修改消息渠道。",
     "trigger_hint": "只会在 issue 上的 agent 任务「完成」或「失败」时推送；普通评论与中间进度不会推。",
-    "toast_failed": "保存失败"
+    "toast_failed": "保存失败",
+    "test": "测试推送",
+    "testing": "发送中…",
+    "test_ok": "接口已返回成功。请到对应微信里确认是否收到。若接口成功但微信没有，先在 ClawBot 对话里回一条保活。"
   }
 }

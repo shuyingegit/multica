@@ -81,7 +81,9 @@ func (c *ClawbotClient) Send(ctx context.Context, msg Message) error {
 	} else {
 		title = truncateRunes(title, maxTitleRunes)
 	}
-	content := truncateRunes(strings.TrimSpace(msg.Content), maxContentRunes*2)
+	// ClawBot / WeChat only shows a few lines, and a long body is what started
+	// getting the whole push rejected after the preview was packed fuller.
+	content := compactClawbotContent(msg.Content)
 
 	body, err := json.Marshal(pushPlusBody{
 		Token:   c.Token,
@@ -115,16 +117,44 @@ func (c *ClawbotClient) Send(ctx context.Context, msg Message) error {
 		if utf8.RuneCountInString(content) > 180 || utf8.RuneCountInString(title) > 40 {
 			return c.sendOnce(ctx, endpoint, channel, truncateRunes(title, 32), truncateRunes(content, 160))
 		}
-		return fmt.Errorf("notify clawbot: unexpected status %d", resp.StatusCode)
+		return fmt.Errorf("notify clawbot: unexpected status %d body=%s", resp.StatusCode, truncateRunes(string(raw), 180))
 	}
 	var parsed pushPlusResp
 	if err := json.Unmarshal(raw, &parsed); err == nil && parsed.Code != 0 && parsed.Code != 200 {
 		if utf8.RuneCountInString(content) > 180 {
 			return c.sendOnce(ctx, endpoint, channel, truncateRunes(title, 32), truncateRunes(content, 160))
 		}
-		return fmt.Errorf("notify clawbot: code=%d msg=%s", parsed.Code, parsed.Msg)
+		return fmt.Errorf("notify clawbot: code=%d msg=%s body=%s", parsed.Code, parsed.Msg, truncateRunes(string(raw), 180))
 	}
 	return nil
+}
+
+// compactClawbotContent keeps the two preview lines plus the issue link.
+// WeChat folds the rest behind “点击查看详情”; stuffing the full reply into
+// the same payload is what stopped delivery after the gist change.
+func compactClawbotContent(content string) string {
+	var kept []string
+	var link string
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+			link = line
+			continue
+		}
+		if len(kept) < 2 {
+			kept = append(kept, truncateRunes(line, 72))
+		}
+	}
+	if link != "" {
+		kept = append(kept, link)
+	}
+	if len(kept) == 0 {
+		return truncateRunes(strings.TrimSpace(content), 160)
+	}
+	return truncateRunes(strings.Join(kept, "\n"), 240)
 }
 
 func (c *ClawbotClient) sendOnce(ctx context.Context, endpoint, channel, title, content string) error {

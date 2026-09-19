@@ -2842,6 +2842,21 @@ export class ApiClient {
     });
   }
 
+  async testTaskNotify(
+    workspaceId: string,
+    channel: "wechat_url" | "clawbot",
+    fields?: { url?: string; token?: string },
+  ): Promise<{ ok: boolean; detail: string }> {
+    return this.fetch(`/api/workspaces/${workspaceId}/task-notify/test`, {
+      method: "POST",
+      body: JSON.stringify({
+        channel,
+        ...(fields?.url ? { url: fields.url } : {}),
+        ...(fields?.token ? { token: fields.token } : {}),
+      }),
+    });
+  }
+
   async listPluginInstallations(workspaceId: string): Promise<PluginInstallationListResponse> {
     let raw: unknown;
     try {

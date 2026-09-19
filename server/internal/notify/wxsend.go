@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	defaultTimeout   = 8 * time.Second
-	maxTitleRunes    = 64
-	maxContentRunes  = 400
-	httpUserAgent    = "multica-task-notify/1.0"
+	defaultTimeout  = 8 * time.Second
+	maxTitleRunes   = 64
+	maxContentRunes = 400
+	httpUserAgent   = "multica-task-notify/1.0"
 )
 
 // Client posts (GET with query params) to a wxsend-style endpoint.
@@ -87,9 +87,9 @@ func (c *Client) Send(ctx context.Context, msg Message) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("notify: unexpected status %d", resp.StatusCode)
+		return fmt.Errorf("notify: unexpected status %d body=%s", resp.StatusCode, truncateRunes(string(raw), 180))
 	}
 	return nil
 }

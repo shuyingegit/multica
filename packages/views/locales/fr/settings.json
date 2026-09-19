@@ -1381,6 +1381,9 @@
     "discard": "Discard",
     "readonly_hint": "Only workspace owners or admins can edit message channels.",
     "trigger_hint": "Fires only on issue-linked agent task completed/failed — not on ordinary comments or progress updates.",
-    "toast_failed": "Failed to save"
+    "toast_failed": "Failed to save",
+    "test": "Send test",
+    "testing": "Sending…",
+    "test_ok": "The channel accepted the test. Check WeChat. If the API succeeds but nothing arrives, reply once in the ClawBot chat to keep it alive."
   }
 }

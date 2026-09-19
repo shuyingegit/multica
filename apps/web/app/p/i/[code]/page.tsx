@@ -99,9 +99,7 @@ export default function PublicIssueSharePage() {
   const [unlocking, setUnlocking] = useState(false);
   const [profile, setProfile] = useState<PublicShareGuestProfile | null>(null);
   const [nickDraft, setNickDraft] = useState("");
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
-  const [replyDraft, setReplyDraft] = useState("");
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
   const listRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -239,14 +237,47 @@ export default function PublicIssueSharePage() {
     return `@${m.label}`;
   }
 
-  function insertMention(m: MentionOption) {
+  function appendMention(current: string, token: string): string {
+    const next = current.replace(/@([^\s@]*)$/, `${token} `);
+    return next.includes(token) ? next : `${current}${token} `;
+  }
+
+  function insertMention(m: MentionOption, target: string) {
     const token = mentionMarkdown(m);
-    setDraft((d) => {
-      const next = d.replace(/@([^\s@]*)$/, `${token} `);
-      return next.includes(token) ? next : `${d}${token} `;
-    });
-    setMentionOpen(false);
-    taRef.current?.focus();
+    if (target === "bottom") {
+      setDraft((d) => appendMention(d, token));
+      taRef.current?.focus();
+      return;
+    }
+    setReplyDrafts((prev) => ({
+      ...prev,
+      [target]: appendMention(prev[target] ?? "", token),
+    }));
+  }
+
+  function mentionKindLabel(kind: MentionOption["kind"]): string {
+    if (kind === "agent") return "智能体";
+    if (kind === "member") return "成员";
+    return "访客";
+  }
+
+  function MentionChips({ target }: { target: string }) {
+    if (mentionOptions.length === 0) return null;
+    return (
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {mentionOptions.map((m) => (
+          <button
+            key={`${target}-${m.kind}-${m.id || m.label}`}
+            type="button"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-full border border-border bg-background px-3 text-body active:bg-muted"
+            onClick={() => insertMention(m, target)}
+          >
+            <span>@{m.label}</span>
+            <span className="text-caption text-muted-foreground">{mentionKindLabel(m.kind)}</span>
+          </button>
+        ))}
+      </div>
+    );
   }
 
   async function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -267,7 +298,7 @@ export default function PublicIssueSharePage() {
   }
 
   async function send(parentId?: string) {
-    const text = (parentId ? replyDraft : draft).trim();
+    const text = (parentId ? replyDrafts[parentId] ?? "" : draft).trim();
     if (!text || sending || !profile?.nickname) return;
     setSending(true);
     try {
@@ -280,8 +311,7 @@ export default function PublicIssueSharePage() {
         parentId,
       );
       if (parentId) {
-        setReplyDraft("");
-        setReplyTo(null);
+        setReplyDrafts((prev) => ({ ...prev, [parentId]: "" }));
       } else {
         setDraft("");
       }
@@ -371,18 +401,6 @@ export default function PublicIssueSharePage() {
             {meta.assignee_name ? ` · 默认找 @${meta.assignee_name}` : null}
           </p>
         </div>
-        {mentionOptions.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {mentionOptions.slice(0, 8).map((m) => (
-              <span
-                key={`${m.kind}-${m.label}`}
-                className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 text-caption text-muted-foreground"
-              >
-                {m.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
       </header>
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
@@ -425,39 +443,28 @@ export default function PublicIssueSharePage() {
                   <div className="break-words">
                     <RichContent content={body} density="compact" />
                   </div>
-                  <button
+                </div>
+              </div>
+              <div className="space-y-2 pl-10">
+                <MentionChips target={c.id} />
+                <div className="flex items-end gap-2">
+                  <Textarea
+                    rows={1}
+                    placeholder={`回复 ${name}`}
+                    className="min-h-11"
+                    value={replyDrafts[c.id] ?? ""}
+                    onChange={(e) =>
+                      setReplyDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))
+                    }
+                  />
+                  <Button
                     type="button"
-                    className="mt-1 text-caption text-muted-foreground hover:text-foreground"
-                    onClick={() => {
-                      setReplyTo({ id: c.id, name });
-                      setReplyDraft("");
-                    }}
+                    className="min-h-11 shrink-0"
+                    disabled={sending || !(replyDrafts[c.id] ?? "").trim()}
+                    onClick={() => void send(c.id)}
                   >
-                    回复
-                  </button>
-                  {replyTo?.id === c.id ? (
-                    <div className="mt-2 space-y-2">
-                      <Textarea
-                        rows={2}
-                        placeholder={`回复 ${name}`}
-                        value={replyDraft}
-                        onChange={(e) => setReplyDraft(e.target.value)}
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button type="button" size="sm" variant="ghost" onClick={() => setReplyTo(null)}>
-                          取消
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={sending || !replyDraft.trim()}
-                          onClick={() => void send(c.id)}
-                        >
-                          发送
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
+                    发送
+                  </Button>
                 </div>
               </div>
               </div>
@@ -468,31 +475,13 @@ export default function PublicIssueSharePage() {
 
       <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3">
         {error ? <p className="text-caption text-destructive">{error}</p> : null}
-        {mentionOpen && mentionOptions.length > 0 ? (
-          <div className="flex flex-wrap gap-1 rounded-lg border border-border bg-popover p-2">
-            {mentionOptions.map((m) => (
-              <Button
-                key={`pick-${m.kind}-${m.label}`}
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => insertMention(m)}
-              >
-                @{m.label}
-              </Button>
-            ))}
-          </div>
-        ) : null}
+        <MentionChips target="bottom" />
         <Textarea
           ref={taRef}
-          rows={3}
-          placeholder="输入消息，可粘贴图片；输入 @ 点名…"
+          rows={2}
+          placeholder="新开一条。点上面的名字即可 @，可粘贴图片。"
           value={draft}
-          onChange={(e) => {
-            const v = e.target.value;
-            setDraft(v);
-            setMentionOpen(/@\S*$/.test(v) || v.endsWith("@"));
-          }}
+          onChange={(e) => setDraft(e.target.value)}
           onPaste={(e) => void onPaste(e)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -503,7 +492,7 @@ export default function PublicIssueSharePage() {
         />
         <div className="flex items-center justify-between gap-2">
           <p className="text-caption text-muted-foreground">Ctrl/⌘ + Enter 发送</p>
-          <Button disabled={sending || !draft.trim()} onClick={() => void send()}>
+          <Button className="min-h-11" disabled={sending || !draft.trim()} onClick={() => void send()}>
             发送
           </Button>
         </div>

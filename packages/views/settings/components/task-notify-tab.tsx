@@ -42,6 +42,7 @@ export function TaskNotifyTab() {
   const saved = useMemo(() => deriveTaskNotifySettings(workspace), [workspace]);
   const [draft, setDraft] = useState<TaskNotifySettings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState<"wechat_url" | "clawbot" | null>(null);
   const current = draft ?? saved;
   const dirty = draft !== null;
 
@@ -74,6 +75,22 @@ export function TaskNotifyTab() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function testChannel(channel: "wechat_url" | "clawbot") {
+    if (!workspace || !canManage || testing) return;
+    setTesting(channel);
+    try {
+      const res = await api.testTaskNotify(workspace.id, channel, {
+        url: channel === "wechat_url" ? current.wechat_url.url : undefined,
+        token: channel === "clawbot" ? current.clawbot.token : undefined,
+      });
+      toast.success(res.detail || t(($) => $.task_notify.test_ok));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t(($) => $.task_notify.toast_failed));
+    } finally {
+      setTesting(null);
     }
   }
 
@@ -155,6 +172,18 @@ export function TaskNotifyTab() {
               {t(($) => $.task_notify.url_hint)}
             </p>
           </div>
+          {canManage ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={testing !== null}
+              onClick={() => void testChannel("wechat_url")}
+            >
+              {testing === "wechat_url"
+                ? t(($) => $.task_notify.testing)
+                : t(($) => $.task_notify.test)}
+            </Button>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -215,6 +244,18 @@ export function TaskNotifyTab() {
               {t(($) => $.task_notify.clawbot_hint)}
             </p>
           </div>
+          {canManage ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={testing !== null}
+              onClick={() => void testChannel("clawbot")}
+            >
+              {testing === "clawbot"
+                ? t(($) => $.task_notify.testing)
+                : t(($) => $.task_notify.test)}
+            </Button>
+          ) : null}
         </CardContent>
       </Card>
 

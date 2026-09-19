@@ -14,7 +14,28 @@ import type { Workspace } from "@multica/core/types";
 function lastWorkspaceSlug(): string {
   if (typeof document === "undefined") return "";
   const match = document.cookie.match(/(?:^|; )last_workspace_slug=([^;]*)/);
-  return match ? decodeURIComponent(match[1]) : "";
+  return match ? decodeURIComponent(match[1] ?? "") : "";
+}
+
+function statusLabel(status: string | undefined): string {
+  switch (status) {
+    case "todo":
+      return "待办";
+    case "in_progress":
+      return "进行中";
+    case "in_review":
+      return "待验收";
+    case "done":
+      return "完成";
+    case "blocked":
+      return "卡住";
+    case "backlog":
+      return "待排";
+    case "cancelled":
+      return "取消";
+    default:
+      return "";
+  }
 }
 
 function pickWorkspace(workspaces: Workspace[], slug: string): Workspace | undefined {
@@ -85,17 +106,17 @@ export default function MobilePinsPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col px-4 pb-[env(safe-area-inset-bottom)] pt-4">
-      <header className="mb-4 border-b border-border pb-3">
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col px-3 pb-28 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <header className="mb-3 border-b border-border pb-3">
         <h1 className="text-title font-medium">关注的票</h1>
         <p className="mt-1 text-caption text-muted-foreground">
-          {ws?.name ?? "工作区"} · 点进去直接到最新消息
+          {ws?.name ?? "工作区"} · 点卡片直接到最新一条
         </p>
       </header>
       <div className="flex flex-1 flex-col gap-2">
         {rows.length === 0 ? (
-          <p className="py-10 text-center text-caption text-muted-foreground">
-            还没有固定的票。在桌面端左侧固定栏添加后，这里会同步出现。
+          <p className="py-10 text-center text-body text-muted-foreground">
+            还没有固定的票。在电脑上左侧固定栏添加后，这里会同步出现。
           </p>
         ) : (
           rows.map(({ pin, issue, activity }) => {
@@ -105,41 +126,45 @@ export default function MobilePinsPage() {
             const unread = unreadOf[pin.item_id] ?? 0;
             const href = slug ? `/${slug}/issues/${encodeURIComponent(segment)}#latest` : "#";
             const age = formatPinRelativeAge(activity);
+            const status = statusLabel(issue?.status);
             return (
               <AppLink
                 key={pin.id}
                 href={href}
-                className="rounded-xl border border-border bg-muted/30 px-3 py-3 active:bg-muted/60"
+                className="block rounded-2xl border border-border bg-muted/30 px-3 py-4 active:bg-muted/60"
               >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-caption text-muted-foreground">{id || "…"}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-body text-muted-foreground">{id || "…"}</span>
                   <span className="flex items-center gap-2 text-caption text-muted-foreground">
+                    {status ? <span className="rounded-full border border-border px-2 py-0.5">{status}</span> : null}
                     {unread > 0 ? (
-                      <span className="rounded-full bg-brand px-1.5 text-brand-foreground">{unread}</span>
+                      <span className="rounded-full bg-brand px-2 py-0.5 text-brand-foreground">{unread}</span>
                     ) : null}
                     {age}
                   </span>
                 </div>
-                <p className="mt-0.5 text-body font-medium">{title}</p>
+                <p className="mt-1 text-body font-medium leading-snug">{title}</p>
               </AppLink>
             );
           })
         )}
       </div>
       {slug ? (
-        <div className="mt-4 flex gap-2 border-t border-border pt-3">
-          <AppLink
-            href={`/${slug}/issues?create=1`}
-            className="flex-1 rounded-lg bg-brand px-3 py-2.5 text-center text-body text-brand-foreground"
-          >
-            新建票
-          </AppLink>
-          <AppLink
-            href={`/${slug}`}
-            className="flex-1 rounded-lg border border-border px-3 py-2.5 text-center text-body"
-          >
-            打开工作区
-          </AppLink>
+        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 px-3 py-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto flex max-w-lg gap-2">
+            <AppLink
+              href={`/${slug}/issues?create=1`}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand px-3 text-body text-brand-foreground"
+            >
+              新建票
+            </AppLink>
+            <AppLink
+              href={`/${slug}`}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-border px-3 text-body"
+            >
+              打开工作区
+            </AppLink>
+          </div>
         </div>
       ) : null}
     </main>

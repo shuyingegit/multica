@@ -177,6 +177,11 @@ export default function PublicIssueSharePage() {
   }, [loadMeta]);
 
   useEffect(() => {
+    const name = meta?.title?.trim() || meta?.identifier?.trim() || (error ? "链接无效" : "对话");
+    document.title = name;
+  }, [error, meta?.identifier, meta?.title]);
+
+  useEffect(() => {
     void loadTimeline();
     if (!meta || meta.needs_password) return;
     const id = window.setInterval(() => void loadTimeline(), 4000);

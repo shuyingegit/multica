@@ -4,22 +4,23 @@
  * Two writers produce titles and they must agree: Next.js metadata renders the
  * `<title>` for statically known routes (landing, auth), and
  * `WorkspaceDocumentTitle` sets `document.title` on workspace routes, whose
- * names only exist in the query cache. Both go through the constants here so
- * `Issues | Multica` and `Changelog | Multica` can never drift into two
- * different separators.
+ * names only exist in the query cache. Both go through the constants here.
+ *
+ * Titles are the page itself: an issue shows the issue name, anything else
+ * shows that screen's function name. No product name is appended.
  *
  * Pure and React-free on purpose: the root layout is a server component and
  * imports `SITE_TITLE` / `TITLE_TEMPLATE` for its metadata export.
  */
 
-/** Root fallback — the title of a page that has nothing more specific to say. */
-export const SITE_TITLE = "Multica — Project Management for Human + Agent Teams";
+/** Root fallback — a page that has nothing more specific to say. */
+export const SITE_TITLE = "工作区";
 
-/** Appended to every page-specific title. */
-export const TITLE_SUFFIX = " | Multica";
+/** Kept empty so page titles are not suffixed with a product name. */
+export const TITLE_SUFFIX = "";
 
 /** Next.js `metadata.title.template`; see apps/web/app/layout.tsx. */
-export const TITLE_TEMPLATE = `%s${TITLE_SUFFIX}`;
+export const TITLE_TEMPLATE = "%s";
 
 /**
  * Longest page name we put in front of the suffix, counted in code points.
@@ -47,14 +48,12 @@ function clipTitle(title: string): string {
 }
 
 /**
- * Build the full document title for a page name, e.g.
- * `MUL-123: Fix login` → `MUL-123: Fix login | Multica`.
+ * Build the document title for a page name, e.g. `MUL-123: Fix login`.
  *
- * An empty or whitespace-only name falls back to {@link SITE_TITLE} rather than
- * rendering a bare ` | Multica`.
+ * An empty or whitespace-only name falls back to {@link SITE_TITLE}.
  */
 export function formatDocumentTitle(pageTitle: string | null | undefined): string {
   const trimmed = pageTitle?.trim();
   if (!trimmed) return SITE_TITLE;
-  return `${clipTitle(trimmed)}${TITLE_SUFFIX}`;
+  return clipTitle(trimmed);
 }

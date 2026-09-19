@@ -8,34 +8,43 @@ import (
 
 var secretRe = regexp.MustCompile(`(?i)((?:api[_-]?key|token|secret|password|bearer)\s*[:=]\s*)\S+|(?:sk|ghp|gho|github_pat)_[A-Za-z0-9_\-]{8,}`)
 
-// PublicProgressText turns one in-flight task step into a short line a guest
-// can read. Tool inputs and outputs are not included.
+// PublicProgressText turns one agent step into text a guest can read.
+// Secrets are stripped. Tool calls stay as the tool name; the agent's own
+// words (text and thinking) are kept so the process is readable after it ends.
 func PublicProgressText(typ, tool, content string) string {
-	content = redact(collapse(content))
+	content = redact(strings.TrimSpace(content))
 	switch typ {
 	case "thinking":
-		return "思考中"
+		if content == "" {
+			return "思考中"
+		}
+		return clip(content, 800)
 	case "tool_use":
 		name := strings.TrimSpace(tool)
 		if name == "" {
 			name = "工具"
 		}
-		return "正在使用 " + name
+		return "使用 " + name
+	case "tool_result":
+		name := strings.TrimSpace(tool)
+		if content == "" {
+			if name == "" {
+				return "这一步完成了"
+			}
+			return name + " 完成"
+		}
+		return clip(content, 400)
 	case "error":
 		if content == "" {
 			return "处理中遇到问题"
 		}
-		return clip("出错："+content, 80)
+		return clip(content, 400)
 	default:
 		if content == "" {
 			return ""
 		}
-		return clip(content, 160)
+		return clip(content, 1200)
 	}
-}
-
-func collapse(s string) string {
-	return strings.Join(strings.Fields(s), " ")
 }
 
 func redact(s string) string {

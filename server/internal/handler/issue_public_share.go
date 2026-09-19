@@ -266,11 +266,11 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 	if !h.requirePublicShareAccess(w, r, share) {
 		return
 	}
-	comments, err := issueshare.ListCommentsSince(
+	comments, err := issueshare.ListPublicComments(
 		r.Context(), h.DB,
 		uuid.MustParse(uuidToString(issue.ID)),
 		uuid.MustParse(uuidToString(issue.WorkspaceID)),
-		share.CutoffAt, 200,
+		500,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load timeline")
@@ -309,7 +309,7 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 			"since":        row.Since.UTC().Format(time.RFC3339Nano),
 		})
 	}
-	progressRows, err := issueshare.ListOpenProgress(r.Context(), h.DB, uuid.MustParse(uuidToString(issue.ID)))
+	progressRows, err := issueshare.ListIssueProgress(r.Context(), h.DB, uuid.MustParse(uuidToString(issue.ID)))
 	if err != nil {
 		slog.Warn("public share progress list failed", append(logger.RequestAttrs(r), "error", err)...)
 		progressRows = nil

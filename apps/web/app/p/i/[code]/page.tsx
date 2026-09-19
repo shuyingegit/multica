@@ -374,6 +374,31 @@ export default function PublicIssueSharePage() {
     }
   }
 
+  const timeline = useMemo(() => {
+    const rows: Array<
+      | { kind: "comment"; at: number; id: string; comment: PublicShareComment }
+      | { kind: "progress"; at: number; id: string; progress: PublicShareProgress }
+    > = [];
+    for (const comment of comments) {
+      rows.push({
+        kind: "comment",
+        at: Date.parse(comment.created_at) || 0,
+        id: comment.id,
+        comment,
+      });
+    }
+    for (const step of progress) {
+      rows.push({
+        kind: "progress",
+        at: Date.parse(step.created_at) || 0,
+        id: step.id,
+        progress: step,
+      });
+    }
+    rows.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+    return rows;
+  }, [comments, progress]);
+
   if (error && !meta) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-4 py-10">
@@ -502,12 +527,20 @@ export default function PublicIssueSharePage() {
       ) : null}
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-        {comments.length === 0 && progress.length === 0 ? (
+        {timeline.length === 0 ? (
           <p className="py-8 text-center text-caption text-muted-foreground">
             还没有消息。输入问题开始对话（可粘贴图片，输入 @ 点名）。
           </p>
         ) : (
-          comments.map((c) => {
+          timeline.map((row) => {
+            if (row.kind === "progress") {
+              return (
+                <p key={`p-${row.id}`} className="whitespace-pre-wrap break-words px-1 text-caption text-muted-foreground">
+                  {row.progress.agent_name} · {formatShareRelativeTime(row.progress.created_at, nowMs)} · {row.progress.text}
+                </p>
+              );
+            }
+            const c = row.comment;
             const parsed = parseGuestComment(c.content);
             const guest = parsed.isGuest || !!c.is_guest;
             const body = parsed.body;
@@ -519,11 +552,10 @@ export default function PublicIssueSharePage() {
             const loc = parsed.location || c.guest_location;
             const mine = guest && parsed.nickname === profile.nickname;
             if (c.type === "progress_update") {
-              const line = body.replace(/\s+/g, " ").trim().slice(0, 80);
               return (
-                <p key={c.id} className="px-1 text-caption text-muted-foreground">
+                <p key={c.id} className="whitespace-pre-wrap break-words px-1 text-caption text-muted-foreground">
                   {name} · {formatShareRelativeTime(c.created_at, nowMs)}
-                  {line ? ` · ${line}` : " · 有一条处理记录"}
+                  {body.trim() ? ` · ${body.trim()}` : " · 有一条处理记录"}
                 </p>
               );
             }
@@ -578,16 +610,6 @@ export default function PublicIssueSharePage() {
             );
           })
         )}
-        {progress.length > 0 ? (
-          <div className="space-y-1 pt-2">
-            <p className="px-1 text-caption text-muted-foreground">处理进度</p>
-            {progress.map((p) => (
-              <p key={p.id} className="px-1 text-caption text-muted-foreground">
-                {p.agent_name} · {formatShareRelativeTime(p.created_at, nowMs)} · {p.text}
-              </p>
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3">

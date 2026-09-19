@@ -177,19 +177,18 @@ type CommentRow struct {
 	CreatedAt  time.Time
 }
 
-func ListCommentsSince(ctx context.Context, db DB, issueID, workspaceID uuid.UUID, cutoff time.Time, limit int) ([]CommentRow, error) {
+func ListPublicComments(ctx context.Context, db DB, issueID, workspaceID uuid.UUID, limit int) ([]CommentRow, error) {
 	if limit <= 0 || limit > 500 {
-		limit = 200
+		limit = 500
 	}
 	rows, err := db.Query(ctx, `
 		SELECT id, author_type, author_id, content, type, created_at
 		FROM comment
 		WHERE issue_id = $1 AND workspace_id = $2
 		  AND deleted_at IS NULL
-		  AND created_at >= $3
 		  AND type IN ('comment', 'progress_update')
 		ORDER BY created_at ASC, id ASC
-		LIMIT $4`, issueID, workspaceID, cutoff, limit)
+		LIMIT $3`, issueID, workspaceID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -250,25 +249,24 @@ type ProgressRow struct {
 	CreatedAt time.Time
 }
 
-// ListOpenProgress returns recent steps of tasks still in flight on the issue.
-// Tool payloads stay out of this query; the caller turns type/tool/content
-// into a short public line.
-func ListOpenProgress(ctx context.Context, db DB, issueID uuid.UUID) ([]ProgressRow, error) {
+// ListIssueProgress returns the agent's step-by-step record on this issue,
+// including steps from tasks that already finished, so a guest can read the
+// whole process and not only the line that is running right now.
+func ListIssueProgress(ctx context.Context, db DB, issueID uuid.UUID) ([]ProgressRow, error) {
 	rows, err := db.Query(ctx, `
 		SELECT m.id,
 		       COALESCE(NULLIF(btrim(a.name), ''), '智能体'),
 		       m.type,
 		       COALESCE(m.tool, ''),
-		       COALESCE(m.content, ''),
+		       COALESCE(NULLIF(m.content, ''), NULLIF(m.output, ''), ''),
 		       m.created_at
 		FROM task_message m
 		JOIN agent_task_queue t ON t.id = m.task_id
 		JOIN agent a ON a.id = t.agent_id
 		WHERE t.issue_id = $1
-		  AND t.status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
-		  AND m.type IN ('text', 'tool_use', 'thinking', 'error')
+		  AND m.type IN ('text', 'thinking', 'tool_use', 'tool_result', 'error')
 		ORDER BY m.created_at DESC, m.seq DESC
-		LIMIT 40`, issueID)
+		LIMIT 400`, issueID)
 	if err != nil {
 		return nil, err
 	}

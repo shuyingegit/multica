@@ -204,3 +204,39 @@ func ListCommentsSince(ctx context.Context, db DB, issueID, workspaceID uuid.UUI
 	}
 	return out, rows.Err()
 }
+
+type WorkRow struct {
+	AgentID   uuid.UUID
+	AgentName string
+	Status    string
+	Since     time.Time
+}
+
+// ListOpenWork returns agents currently queued or running on the issue so a
+// public visitor can see that someone picked the request up.
+func ListOpenWork(ctx context.Context, db DB, issueID uuid.UUID) ([]WorkRow, error) {
+	rows, err := db.Query(ctx, `
+		SELECT a.id,
+		       COALESCE(NULLIF(btrim(a.name), ''), '智能体'),
+		       t.status,
+		       COALESCE(t.started_at, t.created_at)
+		FROM agent_task_queue t
+		JOIN agent a ON a.id = t.agent_id
+		WHERE t.issue_id = $1
+		  AND t.status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
+		ORDER BY COALESCE(t.started_at, t.created_at) ASC
+		LIMIT 8`, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WorkRow
+	for rows.Next() {
+		var w WorkRow
+		if err := rows.Scan(&w.AgentID, &w.AgentName, &w.Status, &w.Since); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}

@@ -12,4 +12,5 @@ export {
   type IssuePublicShareMeta,
   type PublicShareComment,
   type PublicShareGuestProfile,
+  type PublicShareWork,
 } from "./types";

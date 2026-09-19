@@ -11,6 +11,7 @@ import {
   type IssuePublicShareMeta,
   type PublicShareComment,
   type PublicShareGuestProfile,
+  type PublicShareWork,
 } from "@multica/core/issue-public-share";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -76,6 +77,14 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
   }
 }
 
+type LocGate = "idle" | "asking" | "denied" | "unsupported" | "failed";
+
+function formatCoords(lat: number, lon: number): string {
+  const ns = lat >= 0 ? "北纬" : "南纬";
+  const ew = lon >= 0 ? "东经" : "西经";
+  return `${ns}${Math.abs(lat).toFixed(3)} ${ew}${Math.abs(lon).toFixed(3)}`;
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -94,6 +103,8 @@ export default function PublicIssueSharePage() {
   const [password, setPassword] = useState("");
   const [token, setToken] = useState<string | undefined>();
   const [comments, setComments] = useState<PublicShareComment[]>([]);
+  const [work, setWork] = useState<PublicShareWork[]>([]);
+  const [locGate, setLocGate] = useState<LocGate>("idle");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -111,8 +122,31 @@ export default function PublicIssueSharePage() {
 
   useEffect(() => {
     if (!code) return;
-    setProfile(loadGuestProfile(code));
+    const saved = loadGuestProfile(code);
+    setProfile(saved);
+    if (saved?.nickname) setNickDraft(saved.nickname);
   }, [code]);
+
+  useEffect(() => {
+    if (!navigator.permissions?.query) return;
+    let perm: PermissionStatus | null = null;
+    const apply = () => {
+      if (perm?.state === "denied") setLocGate("denied");
+    };
+    void navigator.permissions
+      .query({ name: "geolocation" })
+      .then((status) => {
+        perm = status;
+        apply();
+        status.onchange = apply;
+      })
+      .catch(() => {
+        // Older browsers omit this query; the button still asks.
+      });
+    return () => {
+      if (perm) perm.onchange = null;
+    };
+  }, []);
 
   const loadMeta = useCallback(async () => {
     if (!code) return;
@@ -131,6 +165,7 @@ export default function PublicIssueSharePage() {
     try {
       const data = await api.listPublicIssueShareTimeline(code, token);
       setComments(data.comments ?? []);
+      setWork(data.work ?? []);
     } catch {
       // keep prior
     }
@@ -153,36 +188,29 @@ export default function PublicIssueSharePage() {
     el.scrollTop = el.scrollHeight;
   }, [comments.length]);
 
-  const requestLocation = useCallback(async () => {
-    if (!navigator.geolocation) return;
+  function enterWithLocation() {
+    const name = nickDraft.trim();
+    if (!name || !code || locGate === "asking") return;
+    if (!navigator.geolocation) {
+      setLocGate("unsupported");
+      return;
+    }
+    setLocGate("asking");
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const label = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
-        if (!label) return;
-        setProfile((prev) => {
-          if (!prev?.nickname) return prev;
-          const next = { ...prev, location: label };
-          if (code) saveGuestProfile(code, next);
-          return next;
-        });
+        const label =
+          (await reverseGeocode(pos.coords.latitude, pos.coords.longitude)) ||
+          formatCoords(pos.coords.latitude, pos.coords.longitude);
+        const next: PublicShareGuestProfile = { nickname: name, location: label };
+        saveGuestProfile(code, next);
+        setProfile(next);
+        setLocGate("idle");
       },
-      () => {
-        // Permission denied or unavailable — messages still send without a place.
+      (err) => {
+        setLocGate(err.code === err.PERMISSION_DENIED ? "denied" : "failed");
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60_000 },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
-  }, [code]);
-
-  function confirmNickname() {
-    const name = nickDraft.trim();
-    if (!name || !code) return;
-    const next: PublicShareGuestProfile = {
-      nickname: name,
-      location: profile?.location,
-    };
-    saveGuestProfile(code, next);
-    setProfile(next);
-    void requestLocation();
   }
 
   async function unlock() {
@@ -299,7 +327,7 @@ export default function PublicIssueSharePage() {
 
   async function send(parentId?: string) {
     const text = (parentId ? replyDrafts[parentId] ?? "" : draft).trim();
-    if (!text || sending || !profile?.nickname) return;
+    if (!text || sending || !profile?.nickname || !profile.location) return;
     setSending(true);
     try {
       await api.createPublicIssueShareComment(
@@ -364,27 +392,53 @@ export default function PublicIssueSharePage() {
     );
   }
 
-  if (!profile?.nickname) {
+  if (!profile?.nickname || !profile.location) {
+    const denied = locGate === "denied";
+    const unsupported = locGate === "unsupported";
     return (
       <main className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center gap-4 px-4 py-10">
         <div>
           <h1 className="text-title font-medium">{meta.identifier}</h1>
           <p className="mt-1 text-body text-muted-foreground">{meta.title}</p>
         </div>
-        <p className="text-caption text-muted-foreground">
-          进入前请先设置昵称。之后每条消息都会带上这个名字；若允许定位，位置会记在消息里，方便对照是谁、在哪、什么时候发的。
-        </p>
+        <div className="space-y-2 text-body text-muted-foreground">
+          <p>进入前必须填写真实姓名，并允许本页获取位置。姓名和位置会记在你发出的每条消息上。</p>
+          <p>不同意定位就不能使用本页。</p>
+        </div>
         <Input
-          placeholder="怎么称呼你？"
+          placeholder="真实姓名"
           value={nickDraft}
           maxLength={32}
           onChange={(e) => setNickDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") confirmNickname();
+            if (e.key === "Enter") enterWithLocation();
           }}
         />
-        <Button disabled={nickDraft.trim().length < 1} onClick={() => confirmNickname()}>
-          进入聊天
+        {denied ? (
+          <p className="text-body text-destructive">
+            你之前拒绝了定位，所以现在进不去。刷新页面也不会再弹出系统询问。请点地址栏左侧的锁或信息图标，把「位置」改为允许，再点下面的按钮。
+          </p>
+        ) : null}
+        {unsupported ? (
+          <p className="text-body text-destructive">
+            这个浏览器不能提供位置，无法使用本页。请换用手机或电脑上的 Chrome、Safari 或 Edge。
+          </p>
+        ) : null}
+        {locGate === "failed" ? (
+          <p className="text-body text-destructive">
+            暂时没有拿到位置。请确认系统定位已打开，然后重试。若刚才点了拒绝，按上面的方法在地址栏里改为允许。
+          </p>
+        ) : null}
+        <Button
+          className="min-h-11"
+          disabled={locGate === "asking" || nickDraft.trim().length < 1 || unsupported}
+          onClick={() => enterWithLocation()}
+        >
+          {locGate === "asking"
+            ? "正在向浏览器申请位置…"
+            : denied
+              ? "我已允许，重新获取位置"
+              : "同意定位并进入"}
         </Button>
       </main>
     );
@@ -402,6 +456,24 @@ export default function PublicIssueSharePage() {
           </p>
         </div>
       </header>
+      {work.length > 0 ? (
+        <div className="mb-3 shrink-0 space-y-2">
+          {work.map((w) => (
+            <p
+              key={`${w.agent_id}-${w.status}`}
+              className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-body"
+              role="status"
+            >
+              <span className="size-2 shrink-0 animate-pulse rounded-full bg-brand motion-reduce:animate-none" />
+              <span className="min-w-0">
+                <span className="font-medium">{w.agent_name}</span>
+                <span className="text-muted-foreground"> · {w.status_label}</span>
+                <span className="text-muted-foreground"> · {formatShareRelativeTime(w.since, nowMs)}开始</span>
+              </span>
+            </p>
+          ))}
+        </div>
+      ) : null}
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {comments.length === 0 ? (
@@ -420,6 +492,15 @@ export default function PublicIssueSharePage() {
               (guest ? "访客" : c.author_type === "agent" ? "智能体" : "团队");
             const loc = parsed.location || c.guest_location;
             const mine = guest && parsed.nickname === profile.nickname;
+            if (c.type === "progress_update") {
+              const line = body.replace(/\s+/g, " ").trim().slice(0, 80);
+              return (
+                <p key={c.id} className="px-1 text-caption text-muted-foreground">
+                  {name} · {formatShareRelativeTime(c.created_at, nowMs)}
+                  {line ? ` · ${line}` : " · 有一条处理记录"}
+                </p>
+              );
+            }
             return (
               <div key={c.id} className="space-y-1">
               <div

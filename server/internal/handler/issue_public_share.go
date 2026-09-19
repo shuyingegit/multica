@@ -294,7 +294,22 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 			"guest_location":    guestLoc,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"comments": items})
+	workRows, err := issueshare.ListOpenWork(r.Context(), h.DB, uuid.MustParse(uuidToString(issue.ID)))
+	if err != nil {
+		slog.Warn("public share work list failed", append(logger.RequestAttrs(r), "error", err)...)
+		workRows = nil
+	}
+	work := make([]map[string]any, 0, len(workRows))
+	for _, w := range workRows {
+		work = append(work, map[string]any{
+			"agent_id":     w.AgentID.String(),
+			"agent_name":   w.AgentName,
+			"status":       w.Status,
+			"status_label": publicWorkStatusLabel(w.Status),
+			"since":        w.Since.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"comments": items, "work": work})
 }
 
 type publicIssueCommentRequest struct {
@@ -329,8 +344,13 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "nickname is required")
 		return
 	}
+	location := strings.TrimSpace(req.Location)
+	if location == "" {
+		writeError(w, http.StatusBadRequest, "location is required")
+		return
+	}
 	if !strings.HasPrefix(content, guestCommentPrefix) {
-		content = formatGuestCommentBody(nickname, strings.TrimSpace(req.Location), content)
+		content = formatGuestCommentBody(nickname, location, content)
 	}
 
 	var parent pgtype.UUID
@@ -481,6 +501,17 @@ func (h *Handler) publicShareAuthor(r *http.Request, authorType, authorID, guest
 func (h *Handler) publicShareAuthorName(r *http.Request, authorType, authorID, guestNick string, isGuest bool) string {
 	name, _ := h.publicShareAuthor(r, authorType, authorID, guestNick, isGuest)
 	return name
+}
+
+func publicWorkStatusLabel(status string) string {
+	switch status {
+	case "queued", "deferred":
+		return "已排队，即将开始"
+	case "dispatched":
+		return "正在接手"
+	default:
+		return "正在处理"
+	}
 }
 
 func (h *Handler) publicShareAssignee(r *http.Request, issue db.Issue) (name, typ, id string) {

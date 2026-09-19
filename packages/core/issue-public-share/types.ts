@@ -39,6 +39,14 @@ export interface PublicShareComment {
   guest_location?: string | null;
 }
 
+export interface PublicShareWork {
+  agent_id: string;
+  agent_name: string;
+  status: string;
+  status_label: string;
+  since: string;
+}
+
 export interface PublicShareGuestProfile {
   nickname: string;
   location?: string;

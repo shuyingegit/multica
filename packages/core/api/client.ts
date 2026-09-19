@@ -1491,7 +1491,10 @@ export class ApiClient {
   async listPublicIssueShareTimeline(
     code: string,
     shareToken?: string,
-  ): Promise<{ comments: import("../issue-public-share").PublicShareComment[] }> {
+  ): Promise<{
+    comments: import("../issue-public-share").PublicShareComment[];
+    work?: import("../issue-public-share").PublicShareWork[];
+  }> {
     return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}/timeline`, {
       headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
     });

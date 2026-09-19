@@ -300,16 +300,34 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 		workRows = nil
 	}
 	work := make([]map[string]any, 0, len(workRows))
-	for _, w := range workRows {
+	for _, row := range workRows {
 		work = append(work, map[string]any{
-			"agent_id":     w.AgentID.String(),
-			"agent_name":   w.AgentName,
-			"status":       w.Status,
-			"status_label": publicWorkStatusLabel(w.Status),
-			"since":        w.Since.UTC().Format(time.RFC3339Nano),
+			"agent_id":     row.AgentID.String(),
+			"agent_name":   row.AgentName,
+			"status":       row.Status,
+			"status_label": publicWorkStatusLabel(row.Status),
+			"since":        row.Since.UTC().Format(time.RFC3339Nano),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"comments": items, "work": work})
+	progressRows, err := issueshare.ListOpenProgress(r.Context(), h.DB, uuid.MustParse(uuidToString(issue.ID)))
+	if err != nil {
+		slog.Warn("public share progress list failed", append(logger.RequestAttrs(r), "error", err)...)
+		progressRows = nil
+	}
+	progress := make([]map[string]any, 0, len(progressRows))
+	for _, row := range progressRows {
+		text := issueshare.PublicProgressText(row.Type, row.Tool, row.Content)
+		if text == "" {
+			continue
+		}
+		progress = append(progress, map[string]any{
+			"id":         row.ID.String(),
+			"agent_name": row.AgentName,
+			"text":       text,
+			"created_at": row.CreatedAt.UTC().Format(time.RFC3339Nano),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"comments": items, "work": work, "progress": progress})
 }
 
 type publicIssueCommentRequest struct {

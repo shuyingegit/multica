@@ -11,6 +11,7 @@ import {
   type IssuePublicShareMeta,
   type PublicShareComment,
   type PublicShareGuestProfile,
+  type PublicShareProgress,
   type PublicShareWork,
 } from "@multica/core/issue-public-share";
 import { Button } from "@multica/ui/components/ui/button";
@@ -104,6 +105,7 @@ export default function PublicIssueSharePage() {
   const [token, setToken] = useState<string | undefined>();
   const [comments, setComments] = useState<PublicShareComment[]>([]);
   const [work, setWork] = useState<PublicShareWork[]>([]);
+  const [progress, setProgress] = useState<PublicShareProgress[]>([]);
   const [locGate, setLocGate] = useState<LocGate>("idle");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -167,6 +169,7 @@ export default function PublicIssueSharePage() {
       const data = await api.listPublicIssueShareTimeline(code, token);
       setComments(data.comments ?? []);
       setWork(data.work ?? []);
+      setProgress(data.progress ?? []);
     } catch {
       // keep prior
     }
@@ -184,7 +187,7 @@ export default function PublicIssueSharePage() {
   useEffect(() => {
     void loadTimeline();
     if (!meta || meta.needs_password) return;
-    const id = window.setInterval(() => void loadTimeline(), 4000);
+    const id = window.setInterval(() => void loadTimeline(), 2000);
     return () => window.clearInterval(id);
   }, [loadTimeline, meta]);
 
@@ -192,7 +195,7 @@ export default function PublicIssueSharePage() {
     const el = listRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [comments.length]);
+  }, [comments.length, progress.length]);
 
   function enterWithLocation() {
     const name = nickDraft.trim();
@@ -478,7 +481,9 @@ export default function PublicIssueSharePage() {
       </header>
       {work.length > 0 ? (
         <div className="mb-3 shrink-0 space-y-2">
-          {work.map((w) => (
+          {work.map((w) => {
+            const latest = progress.findLast((p) => p.agent_name === w.agent_name)?.text;
+            return (
             <p
               key={`${w.agent_id}-${w.status}`}
               className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-body"
@@ -488,15 +493,16 @@ export default function PublicIssueSharePage() {
               <span className="min-w-0">
                 <span className="font-medium">{w.agent_name}</span>
                 <span className="text-muted-foreground"> · {w.status_label}</span>
-                <span className="text-muted-foreground"> · {formatShareRelativeTime(w.since, nowMs)}开始</span>
+                {latest ? <span className="text-muted-foreground"> · {latest}</span> : null}
               </span>
             </p>
-          ))}
+            );
+          })}
         </div>
       ) : null}
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-        {comments.length === 0 ? (
+        {comments.length === 0 && progress.length === 0 ? (
           <p className="py-8 text-center text-caption text-muted-foreground">
             还没有消息。输入问题开始对话（可粘贴图片，输入 @ 点名）。
           </p>
@@ -572,6 +578,16 @@ export default function PublicIssueSharePage() {
             );
           })
         )}
+        {progress.length > 0 ? (
+          <div className="space-y-1 pt-2">
+            <p className="px-1 text-caption text-muted-foreground">处理进度</p>
+            {progress.map((p) => (
+              <p key={p.id} className="px-1 text-caption text-muted-foreground">
+                {p.agent_name} · {formatShareRelativeTime(p.created_at, nowMs)} · {p.text}
+              </p>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3">

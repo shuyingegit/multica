@@ -47,6 +47,13 @@ export interface PublicShareWork {
   since: string;
 }
 
+export interface PublicShareProgress {
+  id: string;
+  agent_name: string;
+  text: string;
+  created_at: string;
+}
+
 export interface PublicShareGuestProfile {
   nickname: string;
   location?: string;

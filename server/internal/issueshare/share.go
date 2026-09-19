@@ -240,3 +240,52 @@ func ListOpenWork(ctx context.Context, db DB, issueID uuid.UUID) ([]WorkRow, err
 	}
 	return out, rows.Err()
 }
+
+type ProgressRow struct {
+	ID        uuid.UUID
+	AgentName string
+	Type      string
+	Tool      string
+	Content   string
+	CreatedAt time.Time
+}
+
+// ListOpenProgress returns recent steps of tasks still in flight on the issue.
+// Tool payloads stay out of this query; the caller turns type/tool/content
+// into a short public line.
+func ListOpenProgress(ctx context.Context, db DB, issueID uuid.UUID) ([]ProgressRow, error) {
+	rows, err := db.Query(ctx, `
+		SELECT m.id,
+		       COALESCE(NULLIF(btrim(a.name), ''), '智能体'),
+		       m.type,
+		       COALESCE(m.tool, ''),
+		       COALESCE(m.content, ''),
+		       m.created_at
+		FROM task_message m
+		JOIN agent_task_queue t ON t.id = m.task_id
+		JOIN agent a ON a.id = t.agent_id
+		WHERE t.issue_id = $1
+		  AND t.status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
+		  AND m.type IN ('text', 'tool_use', 'thinking', 'error')
+		ORDER BY m.created_at DESC, m.seq DESC
+		LIMIT 40`, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProgressRow
+	for rows.Next() {
+		var p ProgressRow
+		if err := rows.Scan(&p.ID, &p.AgentName, &p.Type, &p.Tool, &p.Content, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}

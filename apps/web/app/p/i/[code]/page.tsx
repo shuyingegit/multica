@@ -95,6 +95,58 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+function ClampText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.includes("\n") || text.length > 72;
+  return (
+    <div>
+      <p className={`break-words text-caption text-muted-foreground ${open ? "whitespace-pre-wrap" : "line-clamp-3"}`}>
+        {text}
+      </p>
+      {long ? (
+        <button type="button" className="min-h-11 text-caption text-foreground" onClick={() => setOpen((value) => !value)}>
+          {open ? "收起" : "展开"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ProgressFold({
+  steps,
+  nowMs,
+}: {
+  steps: PublicShareProgress[];
+  nowMs: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const hidden = Math.max(0, steps.length - 3);
+  const shown = open ? steps : steps.slice(-3);
+  const long = steps.some((step) => step.text.includes("\n") || step.text.length > 48);
+  if (steps.length === 0) return null;
+  return (
+    <div className="space-y-1 rounded-xl border border-border bg-muted/20 px-3 py-2">
+      {shown.map((step) => (
+        <p
+          key={step.id}
+          className={`break-words text-caption text-muted-foreground ${open ? "whitespace-pre-wrap" : "line-clamp-3"}`}
+        >
+          {step.agent_name} · {formatShareRelativeTime(step.created_at, nowMs)} · {step.text}
+        </p>
+      ))}
+      {hidden > 0 || long ? (
+        <button
+          type="button"
+          className="min-h-11 text-caption text-foreground"
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? "收起" : hidden > 0 ? `展开其余 ${hidden} 条` : "展开"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function PublicIssueSharePage() {
   const params = useParams<{ code: string }>();
   const code = params?.code ?? "";
@@ -377,25 +429,40 @@ export default function PublicIssueSharePage() {
   const timeline = useMemo(() => {
     const rows: Array<
       | { kind: "comment"; at: number; id: string; comment: PublicShareComment }
-      | { kind: "progress"; at: number; id: string; progress: PublicShareProgress }
+      | { kind: "progress"; at: number; id: string; steps: PublicShareProgress[] }
     > = [];
-    for (const comment of comments) {
-      rows.push({
-        kind: "comment",
-        at: Date.parse(comment.created_at) || 0,
-        id: comment.id,
-        comment,
-      });
-    }
-    for (const step of progress) {
+    const steps: PublicShareProgress[] = [];
+    const flush = () => {
+      if (steps.length === 0) return;
+      const first = steps[0];
       rows.push({
         kind: "progress",
-        at: Date.parse(step.created_at) || 0,
-        id: step.id,
-        progress: step,
+        at: Date.parse(first.created_at) || 0,
+        id: first.id,
+        steps: steps.splice(0, steps.length),
       });
+    };
+    const commentsByTime = [...comments].sort(
+      (a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0),
+    );
+    const progressByTime = [...progress].sort(
+      (a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0),
+    );
+    let pi = 0;
+    for (const comment of commentsByTime) {
+      const at = Date.parse(comment.created_at) || 0;
+      while (pi < progressByTime.length && (Date.parse(progressByTime[pi].created_at) || 0) <= at) {
+        steps.push(progressByTime[pi]);
+        pi += 1;
+      }
+      flush();
+      rows.push({ kind: "comment", at, id: comment.id, comment });
     }
-    rows.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+    while (pi < progressByTime.length) {
+      steps.push(progressByTime[pi]);
+      pi += 1;
+    }
+    flush();
     return rows;
   }, [comments, progress]);
 
@@ -518,7 +585,7 @@ export default function PublicIssueSharePage() {
               <span className="min-w-0">
                 <span className="font-medium">{w.agent_name}</span>
                 <span className="text-muted-foreground"> · {w.status_label}</span>
-                {latest ? <span className="text-muted-foreground"> · {latest}</span> : null}
+                {latest ? <span className="line-clamp-2 text-muted-foreground"> · {latest}</span> : null}
               </span>
             </p>
             );
@@ -534,11 +601,7 @@ export default function PublicIssueSharePage() {
         ) : (
           timeline.map((row) => {
             if (row.kind === "progress") {
-              return (
-                <p key={`p-${row.id}`} className="whitespace-pre-wrap break-words px-1 text-caption text-muted-foreground">
-                  {row.progress.agent_name} · {formatShareRelativeTime(row.progress.created_at, nowMs)} · {row.progress.text}
-                </p>
-              );
+              return <ProgressFold key={`p-${row.id}`} steps={row.steps} nowMs={nowMs} />;
             }
             const c = row.comment;
             const parsed = parseGuestComment(c.content);
@@ -553,10 +616,10 @@ export default function PublicIssueSharePage() {
             const mine = guest && parsed.nickname === profile.nickname;
             if (c.type === "progress_update") {
               return (
-                <p key={c.id} className="whitespace-pre-wrap break-words px-1 text-caption text-muted-foreground">
-                  {name} · {formatShareRelativeTime(c.created_at, nowMs)}
-                  {body.trim() ? ` · ${body.trim()}` : " · 有一条处理记录"}
-                </p>
+                <ClampText
+                  key={c.id}
+                  text={`${name} · ${formatShareRelativeTime(c.created_at, nowMs)}${body.trim() ? ` · ${body.trim()}` : " · 有一条处理记录"}`}
+                />
               );
             }
             return (

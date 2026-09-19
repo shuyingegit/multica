@@ -85,6 +85,9 @@ func TestClawbotClient_Send(t *testing.T) {
 	if gotBody["channel"] != notify.ClawbotChannelID {
 		t.Fatalf("channel %+v", gotBody["channel"])
 	}
+	if gotBody["template"] != "txt" {
+		t.Fatalf("template %+v", gotBody["template"])
+	}
 	title, _ := gotBody["title"].(string)
 	if !strings.HasPrefix(title, "【scsoi】") {
 		t.Fatalf("title should get scsoi prefix, got %q", title)

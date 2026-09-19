@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
 import { pinListOptions } from "@multica/core/pins/queries";
-import { issueDetailOptions } from "@multica/core/issues/queries";
+import { issueDetailOptions, issueKeys } from "@multica/core/issues/queries";
 import { api } from "@multica/core/api";
+import { useWSEvent } from "@multica/core/realtime";
 import { AppLink } from "@multica/views/navigation";
 import { formatPinRelativeAge } from "@multica/core/pins";
 import { useMobileWorkspace } from "./workspace";
+
+const SEEN_KEY = "scs268-pin-seen-at";
 
 function statusLabel(status: string | undefined): string {
   switch (status) {
@@ -30,10 +33,31 @@ function statusLabel(status: string | undefined): string {
   }
 }
 
+function loadSeen(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(SEEN_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSeen(next: Record<string, string>) {
+  window.localStorage.setItem(SEEN_KEY, JSON.stringify(next));
+}
+
 export default function MobilePinsPage() {
   const { user, ws, ready } = useMobileWorkspace();
+  const queryClient = useQueryClient();
   const wsId = ws?.id ?? "";
   const slug = ws?.slug ?? "";
+  const [seen, setSeen] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setSeen(loadSeen());
+  }, []);
 
   const pinsQuery = useQuery({
     ...pinListOptions(wsId, user?.id ?? ""),
@@ -55,6 +79,29 @@ export default function MobilePinsPage() {
     })),
   });
 
+  const commentQueries = useQueries({
+    queries: issuePins.map((pin) => ({
+      queryKey: ["m-pin-comments", pin.item_id],
+      queryFn: () => api.listComments(pin.item_id),
+      enabled: ready,
+    })),
+  });
+
+  const onComment = useCallback(
+    (payload: unknown) => {
+      const comment = (payload as { comment?: { issue_id?: string } } | null)?.comment;
+      if (!comment?.issue_id || !wsId) return;
+      void queryClient.invalidateQueries({
+        queryKey: issueKeys.detail(wsId, comment.issue_id),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["m-pin-comments", comment.issue_id],
+      });
+    },
+    [queryClient, wsId],
+  );
+  useWSEvent("comment:created", onComment);
+
   const workingByIssue = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const agent of workQuery.data ?? []) {
@@ -73,7 +120,18 @@ export default function MobilePinsPage() {
       const activity = issue?.last_activity_at || issue?.updated_at || pin.created_at;
       return { pin, issue, activity };
     })
-    .sort((a, b) => Date.parse(b.activity) - Date.parse(a.activity));
+    .sort((a, b) => {
+      const actA = Date.parse(a.activity) || 0;
+      const actB = Date.parse(b.activity) || 0;
+      if (actA !== actB) return actB - actA;
+      return (a.pin.position ?? 0) - (b.pin.position ?? 0);
+    });
+
+  function markSeen(issueId: string, at: string) {
+    const next = { ...loadSeen(), [issueId]: at };
+    saveSeen(next);
+    setSeen(next);
+  }
 
   if (!ready || pinsQuery.isPending) {
     return (
@@ -98,20 +156,42 @@ export default function MobilePinsPage() {
           rows.map(({ pin, issue, activity }) => {
             const title = issue?.title || "加载标题…";
             const id = issue?.identifier || "";
-            const segment = issue?.id || pin.item_id;
-            const href = `/m/i/${encodeURIComponent(segment)}`;
+            const issueId = issue?.id || pin.item_id;
+            const openId = issue?.identifier || issueId;
+            const href = slug
+              ? `/${slug}/issues/${encodeURIComponent(openId)}#latest`
+              : `/m/i/${encodeURIComponent(openId)}`;
             const age = formatPinRelativeAge(activity);
             const status = statusLabel(issue?.status);
             const workers = workingByIssue.get(pin.item_id) ?? workingByIssue.get(issue?.id ?? "") ?? [];
+            const pinIndex = issuePins.findIndex((p) => p.id === pin.id);
+            const comments = pinIndex >= 0 ? commentQueries[pinIndex]?.data : undefined;
+            const messages = (comments ?? []).filter((c) => c.type === "comment");
+            const prev = seen[issueId];
+            const prevMs = prev ? Date.parse(prev) : NaN;
+            const unread = !prev
+              ? messages.length
+              : messages.filter((c) => (Date.parse(c.created_at) || 0) > prevMs).length;
+            const latestMs = messages.reduce((max, c) => Math.max(max, Date.parse(c.created_at) || 0), 0);
             return (
               <AppLink
                 key={pin.id}
                 href={href}
+                onClick={() =>
+                  markSeen(issueId, latestMs ? new Date(latestMs).toISOString() : new Date().toISOString())
+                }
                 className="block rounded-2xl border border-border bg-muted/30 px-3 py-4 active:bg-muted/60"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-body text-muted-foreground">{id || "…"}</span>
-                  <span className="text-caption text-muted-foreground">{age}</span>
+                  <span className="flex items-center gap-2">
+                    {unread > 0 ? (
+                      <span className="rounded-full bg-brand px-2 py-0.5 text-caption text-brand-foreground">
+                        {unread} 条未读
+                      </span>
+                    ) : null}
+                    <span className="text-caption text-muted-foreground">{age}</span>
+                  </span>
                 </div>
                 <p className="mt-1 text-body font-medium leading-snug">{title}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -133,15 +213,17 @@ export default function MobilePinsPage() {
       </div>
       <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background/95 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
         <div className="mx-auto flex max-w-lg gap-2">
-          <AppLink
-            href="/m/new"
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand px-3 text-body text-brand-foreground"
-          >
-            新建票
-          </AppLink>
           {slug ? (
             <AppLink
-              href={`/${slug}`}
+              href={`/${slug}/issues?create=1`}
+              className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-brand px-3 text-body text-brand-foreground"
+            >
+              新建票
+            </AppLink>
+          ) : null}
+          {slug ? (
+            <AppLink
+              href={`/${slug}/issues`}
               className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-border px-3 text-body"
             >
               电脑版

@@ -47,10 +47,11 @@ func (c *ClawbotClient) Enabled() bool {
 }
 
 type pushPlusBody struct {
-	Token   string `json:"token"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Channel string `json:"channel"`
+	Token    string `json:"token"`
+	Title    string `json:"title"`
+	Content  string `json:"content"`
+	Channel  string `json:"channel"`
+	Template string `json:"template,omitempty"`
 }
 
 type pushPlusResp struct {
@@ -86,10 +87,11 @@ func (c *ClawbotClient) Send(ctx context.Context, msg Message) error {
 	content := compactClawbotContent(msg.Content)
 
 	body, err := json.Marshal(pushPlusBody{
-		Token:   c.Token,
-		Title:   title,
-		Content: content,
-		Channel: channel,
+		Token:    c.Token,
+		Title:    title,
+		Content:  content,
+		Channel:  channel,
+		Template: "txt",
 	})
 	if err != nil {
 		return err
@@ -159,10 +161,11 @@ func compactClawbotContent(content string) string {
 
 func (c *ClawbotClient) sendOnce(ctx context.Context, endpoint, channel, title, content string) error {
 	body, err := json.Marshal(pushPlusBody{
-		Token:   c.Token,
-		Title:   title,
-		Content: content,
-		Channel: channel,
+		Token:    c.Token,
+		Title:    title,
+		Content:  content,
+		Channel:  channel,
+		Template: "txt",
 	})
 	if err != nil {
 		return err

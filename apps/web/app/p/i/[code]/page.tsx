@@ -114,6 +114,7 @@ export default function PublicIssueSharePage() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const listRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const mentionLinks = useRef<{ visible: string; markdown: string }[]>([]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
@@ -270,16 +271,30 @@ export default function PublicIssueSharePage() {
     return next.includes(token) ? next : `${current}${token} `;
   }
 
+  function expandMentions(text: string): string {
+    const items = [...mentionLinks.current].sort((a, b) => b.visible.length - a.visible.length);
+    let out = text;
+    for (const item of items) {
+      if (!item.visible || item.visible === item.markdown) continue;
+      out = out.split(item.visible).join(item.markdown);
+    }
+    return out;
+  }
+
   function insertMention(m: MentionOption, target: string) {
-    const token = mentionMarkdown(m);
+    const markdown = mentionMarkdown(m);
+    const visible = `@${m.label}`;
+    if (markdown !== visible) {
+      mentionLinks.current = [...mentionLinks.current, { visible, markdown }];
+    }
     if (target === "bottom") {
-      setDraft((d) => appendMention(d, token));
+      setDraft((d) => appendMention(d, visible));
       taRef.current?.focus();
       return;
     }
     setReplyDrafts((prev) => ({
       ...prev,
-      [target]: appendMention(prev[target] ?? "", token),
+      [target]: appendMention(prev[target] ?? "", visible),
     }));
   }
 
@@ -326,7 +341,7 @@ export default function PublicIssueSharePage() {
   }
 
   async function send(parentId?: string) {
-    const text = (parentId ? replyDrafts[parentId] ?? "" : draft).trim();
+    const text = expandMentions((parentId ? replyDrafts[parentId] ?? "" : draft).trim());
     if (!text || sending || !profile?.nickname || !profile.location) return;
     setSending(true);
     try {

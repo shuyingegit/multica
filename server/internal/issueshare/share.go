@@ -169,26 +169,44 @@ func UpdateAuth(ctx context.Context, db DB, id uuid.UUID, mode, hash string) err
 }
 
 type CommentRow struct {
-	ID         uuid.UUID
-	AuthorType string
-	AuthorID   uuid.UUID
-	Content    string
-	Type       string
-	CreatedAt  time.Time
+	ID             uuid.UUID
+	AuthorType     string
+	AuthorID       uuid.UUID
+	Content        string
+	Type           string
+	CreatedAt      time.Time
+	ParentID       *uuid.UUID
+	ResolvedAt     *time.Time
+	ThreadResolved bool
 }
 
-func ListPublicComments(ctx context.Context, db DB, issueID, workspaceID uuid.UUID, limit int) ([]CommentRow, error) {
+func ListPublicComments(ctx context.Context, db DB, issueID, workspaceID uuid.UUID, since time.Time, limit int) ([]CommentRow, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 500
 	}
 	rows, err := db.Query(ctx, `
-		SELECT id, author_type, author_id, content, type, created_at
-		FROM comment
-		WHERE issue_id = $1 AND workspace_id = $2
-		  AND deleted_at IS NULL
-		  AND type IN ('comment', 'progress_update')
-		ORDER BY created_at ASC, id ASC
-		LIMIT $3`, issueID, workspaceID, limit)
+		SELECT c.id, c.author_type, c.author_id, c.content, c.type, c.created_at,
+		       c.parent_id, c.resolved_at,
+		       EXISTS (
+		         WITH RECURSIVE anc AS (
+		           SELECT id, parent_id, resolved_at, 0 AS depth
+		           FROM comment
+		           WHERE id = c.id
+		           UNION ALL
+		           SELECT p.id, p.parent_id, p.resolved_at, anc.depth + 1
+		           FROM comment p
+		           JOIN anc ON p.id = anc.parent_id
+		           WHERE p.deleted_at IS NULL AND anc.depth < 20
+		         )
+		         SELECT 1 FROM anc WHERE resolved_at IS NOT NULL
+		       ) AS thread_resolved
+		FROM comment c
+		WHERE c.issue_id = $1 AND c.workspace_id = $2
+		  AND c.deleted_at IS NULL
+		  AND c.type IN ('comment', 'progress_update')
+		  AND c.created_at >= $3
+		ORDER BY c.created_at ASC, c.id ASC
+		LIMIT $4`, issueID, workspaceID, since, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +214,10 @@ func ListPublicComments(ctx context.Context, db DB, issueID, workspaceID uuid.UU
 	var out []CommentRow
 	for rows.Next() {
 		var c CommentRow
-		if err := rows.Scan(&c.ID, &c.AuthorType, &c.AuthorID, &c.Content, &c.Type, &c.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&c.ID, &c.AuthorType, &c.AuthorID, &c.Content, &c.Type, &c.CreatedAt,
+			&c.ParentID, &c.ResolvedAt, &c.ThreadResolved,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -252,7 +273,7 @@ type ProgressRow struct {
 // ListIssueProgress returns the agent's step-by-step record on this issue,
 // including steps from tasks that already finished, so a guest can read the
 // whole process and not only the line that is running right now.
-func ListIssueProgress(ctx context.Context, db DB, issueID uuid.UUID) ([]ProgressRow, error) {
+func ListIssueProgress(ctx context.Context, db DB, issueID uuid.UUID, since time.Time) ([]ProgressRow, error) {
 	rows, err := db.Query(ctx, `
 		SELECT m.id,
 		       COALESCE(NULLIF(btrim(a.name), ''), '智能体'),
@@ -264,9 +285,10 @@ func ListIssueProgress(ctx context.Context, db DB, issueID uuid.UUID) ([]Progres
 		JOIN agent_task_queue t ON t.id = m.task_id
 		JOIN agent a ON a.id = t.agent_id
 		WHERE t.issue_id = $1
+		  AND m.created_at >= $2
 		  AND m.type IN ('text', 'thinking', 'tool_use', 'tool_result', 'error')
 		ORDER BY m.created_at DESC, m.seq DESC
-		LIMIT 400`, issueID)
+		LIMIT 400`, issueID, since)
 	if err != nil {
 		return nil, err
 	}

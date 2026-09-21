@@ -1508,6 +1508,7 @@ export class ApiClient {
     nickname?: string,
     location?: string,
     parentId?: string,
+    attachmentIds?: string[],
   ): Promise<{ id: string; content: string; created_at: string; is_guest: boolean }> {
     return this.fetch(`/api/public/issue-shares/${encodeURIComponent(code)}/comments`, {
       method: "POST",
@@ -1516,9 +1517,33 @@ export class ApiClient {
         ...(nickname ? { nickname } : {}),
         ...(location ? { location } : {}),
         ...(parentId ? { parent_id: parentId } : {}),
+        ...(attachmentIds?.length ? { attachment_ids: attachmentIds } : {}),
       }),
       headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
     });
+  }
+
+  async uploadPublicIssueShareFile(
+    code: string,
+    file: File,
+    shareToken?: string,
+  ): Promise<import("../issue-public-share").PublicShareAttachment> {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(
+      `${this.baseUrl}/api/public/issue-shares/${encodeURIComponent(code)}/attachments`,
+      {
+        method: "POST",
+        headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
+        body: formData,
+        credentials: "include",
+      },
+    );
+    if (!res.ok) {
+      const message = await this.parseErrorMessage(res, `Upload failed: ${res.status}`);
+      throw new Error(message);
+    }
+    return (await res.json()) as import("../issue-public-share").PublicShareAttachment;
   }
 
   async previewCommentTriggers(issueId: string, content: string, parentId?: string, editingCommentId?: string): Promise<CommentTriggerPreview> {

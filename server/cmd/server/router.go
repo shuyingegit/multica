@@ -1429,6 +1429,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Post("/api/public/issue-shares/{code}/unlock", h.UnlockPublicIssueShare)
 	r.Get("/api/public/issue-shares/{code}/timeline", h.ListPublicIssueShareTimeline)
 	r.Post("/api/public/issue-shares/{code}/comments", h.CreatePublicIssueShareComment)
+	r.Post("/api/public/issue-shares/{code}/attachments", h.UploadPublicIssueShareAttachment)
+	r.Get("/api/public/issue-shares/{code}/attachments/{id}", h.DownloadPublicIssueShareAttachment)
 
 	// Webhook ingress for autopilots. Outside the authenticated group on
 	// purpose: the bearer token in the URL path IS the credential. Workspace

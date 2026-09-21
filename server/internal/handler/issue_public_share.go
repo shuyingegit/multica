@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -266,21 +268,24 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 	if !h.requirePublicShareAccess(w, r, share) {
 		return
 	}
+	issueID := uuid.MustParse(uuidToString(issue.ID))
 	comments, err := issueshare.ListPublicComments(
 		r.Context(), h.DB,
-		uuid.MustParse(uuidToString(issue.ID)),
+		issueID,
 		uuid.MustParse(uuidToString(issue.WorkspaceID)),
+		share.CutoffAt,
 		500,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load timeline")
 		return
 	}
+	attachmentsByComment := h.publicShareAttachments(r, issue.WorkspaceID, comments)
 	items := make([]map[string]any, 0, len(comments))
 	for _, c := range comments {
 		guestNick, guestLoc, isGuest := parseGuestMeta(c.Content)
 		authorName, authorAvatar := h.publicShareAuthor(r, c.AuthorType, c.AuthorID.String(), guestNick, isGuest)
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"id":                c.ID.String(),
 			"author_type":       c.AuthorType,
 			"author_id":         c.AuthorID.String(),
@@ -292,7 +297,16 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 			"is_guest":          isGuest,
 			"guest_nickname":    guestNick,
 			"guest_location":    guestLoc,
-		})
+			"thread_resolved":   c.ThreadResolved,
+			"attachments":       attachmentsByComment[c.ID.String()],
+		}
+		if c.ParentID != nil {
+			item["parent_id"] = c.ParentID.String()
+		}
+		if c.ResolvedAt != nil {
+			item["resolved_at"] = c.ResolvedAt.UTC().Format(time.RFC3339Nano)
+		}
+		items = append(items, item)
 	}
 	workRows, err := issueshare.ListOpenWork(r.Context(), h.DB, uuid.MustParse(uuidToString(issue.ID)))
 	if err != nil {
@@ -309,7 +323,7 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 			"since":        row.Since.UTC().Format(time.RFC3339Nano),
 		})
 	}
-	progressRows, err := issueshare.ListIssueProgress(r.Context(), h.DB, uuid.MustParse(uuidToString(issue.ID)))
+	progressRows, err := issueshare.ListIssueProgress(r.Context(), h.DB, issueID, share.CutoffAt)
 	if err != nil {
 		slog.Warn("public share progress list failed", append(logger.RequestAttrs(r), "error", err)...)
 		progressRows = nil
@@ -331,10 +345,11 @@ func (h *Handler) ListPublicIssueShareTimeline(w http.ResponseWriter, r *http.Re
 }
 
 type publicIssueCommentRequest struct {
-	Content  string `json:"content"`
-	Nickname string `json:"nickname,omitempty"`
-	Location string `json:"location,omitempty"`
-	ParentID string `json:"parent_id,omitempty"`
+	Content       string   `json:"content"`
+	Nickname      string   `json:"nickname,omitempty"`
+	Location      string   `json:"location,omitempty"`
+	ParentID      string   `json:"parent_id,omitempty"`
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 }
 
 // CreatePublicIssueShareComment — POST /api/public/issue-shares/{code}/comments
@@ -353,9 +368,16 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		return
 	}
 	content := sanitizeNullBytes(strings.TrimSpace(req.Content))
-	if content == "" {
+	attachmentIDs, attOK := h.publicShareCommentAttachments(w, r, issue, req.AttachmentIDs)
+	if !attOK {
+		return
+	}
+	if content == "" && len(attachmentIDs) == 0 {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
+	}
+	if content == "" {
+		content = "（附件）"
 	}
 	nickname := strings.TrimSpace(req.Nickname)
 	if nickname == "" {
@@ -401,6 +423,17 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		slog.Warn("public share comment failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to create comment")
 		return
+	}
+	if len(attachmentIDs) > 0 {
+		if err := h.Queries.LinkAttachmentsToComment(r.Context(), db.LinkAttachmentsToCommentParams{
+			CommentID: created.ID,
+			IssueID:   issue.ID,
+			Column3:   attachmentIDs,
+		}); err != nil {
+			slog.Warn("public share attach failed", append(logger.RequestAttrs(r), "error", err)...)
+			writeError(w, http.StatusInternalServerError, "failed to attach files")
+			return
+		}
 	}
 	comment := created.Comment()
 	resp := commentToResponse(comment, nil, nil)
@@ -599,4 +632,215 @@ func (h *Handler) requirePublicShareAccess(w http.ResponseWriter, r *http.Reques
 	}
 	writeError(w, http.StatusUnauthorized, "password required")
 	return false
+}
+
+func (h *Handler) publicShareAttachments(r *http.Request, workspaceID pgtype.UUID, comments []issueshare.CommentRow) map[string][]map[string]any {
+	out := make(map[string][]map[string]any, len(comments))
+	ids := make([]pgtype.UUID, 0, len(comments))
+	for _, c := range comments {
+		out[c.ID.String()] = []map[string]any{}
+		ids = append(ids, pgtype.UUID{Bytes: c.ID, Valid: true})
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	rows, err := h.Queries.ListAttachmentsByCommentIDs(r.Context(), db.ListAttachmentsByCommentIDsParams{
+		Column1:     ids,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		slog.Warn("public share attachments failed", append(logger.RequestAttrs(r), "error", err)...)
+		return out
+	}
+	for _, a := range rows {
+		if !a.CommentID.Valid {
+			continue
+		}
+		key := uuidToString(a.CommentID)
+		out[key] = append(out[key], publicAttachmentJSON(a))
+	}
+	return out
+}
+
+func publicAttachmentJSON(a db.Attachment) map[string]any {
+	return map[string]any{
+		"id":           uuidToString(a.ID),
+		"filename":     a.Filename,
+		"content_type": a.ContentType,
+		"size_bytes":   a.SizeBytes,
+	}
+}
+
+func (h *Handler) publicShareCommentAttachments(w http.ResponseWriter, r *http.Request, issue db.Issue, raw []string) ([]pgtype.UUID, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	if len(raw) > 8 {
+		writeError(w, http.StatusBadRequest, "too many attachments")
+		return nil, false
+	}
+	ids := make([]pgtype.UUID, 0, len(raw))
+	seen := map[string]struct{}{}
+	for _, s := range raw {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		parsed, err := uuid.Parse(s)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid attachment")
+			return nil, false
+		}
+		seen[s] = struct{}{}
+		ids = append(ids, pgtype.UUID{Bytes: parsed, Valid: true})
+	}
+	if len(ids) == 0 {
+		return nil, true
+	}
+	rows, err := h.Queries.ListAttachmentsByIDs(r.Context(), db.ListAttachmentsByIDsParams{
+		AttachmentIds: ids,
+		WorkspaceID:   issue.WorkspaceID,
+	})
+	if err != nil || len(rows) != len(ids) {
+		writeError(w, http.StatusBadRequest, "invalid attachment")
+		return nil, false
+	}
+	issueID := uuidToString(issue.ID)
+	for _, a := range rows {
+		if uuidToString(a.IssueID) != issueID || a.CommentID.Valid || a.SourceContextID.Valid {
+			writeError(w, http.StatusBadRequest, "invalid attachment")
+			return nil, false
+		}
+	}
+	return ids, true
+}
+
+func safePublicUploadName(name string) string {
+	name = path.Base(strings.ReplaceAll(name, "\\", "/"))
+	name = strings.Map(func(r rune) rune {
+		if r < 32 || r == '"' || r == '/' || r == '\\' {
+			return '_'
+		}
+		return r
+	}, name)
+	if name == "" || name == "." || name == ".." {
+		return "file"
+	}
+	if len(name) > 180 {
+		name = name[:180]
+	}
+	return name
+}
+
+// UploadPublicIssueShareAttachment — POST /api/public/issue-shares/{code}/attachments
+func (h *Handler) UploadPublicIssueShareAttachment(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	share, issue, _, ok := h.loadPublicIssueShare(w, r, code)
+	if !ok {
+		return
+	}
+	if !h.requirePublicShareAccess(w, r, share) {
+		return
+	}
+	if h.Storage == nil {
+		writeFeatureDisabled(w, "file_upload_not_configured", "file upload not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		writeError(w, http.StatusBadRequest, "file too large or invalid multipart form")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "missing file field")
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "failed to read file")
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	displayName := safePublicUploadName(header.Filename)
+	if ct, ok := extContentTypes[strings.ToLower(path.Ext(displayName))]; ok {
+		contentType = ct
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read file")
+		return
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "failed to read file")
+		return
+	}
+	if len(data) == 0 {
+		writeError(w, http.StatusBadRequest, "empty file")
+		return
+	}
+
+	id, err := uuid.NewV7()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	storedName := id.String() + path.Ext(displayName)
+	workspaceID := uuidToString(issue.WorkspaceID)
+	key := "workspaces/" + workspaceID + "/" + storedName
+	link, err := h.Storage.Upload(r.Context(), key, data, contentType, displayName)
+	if err != nil {
+		slog.Error("public share upload failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "upload failed")
+		return
+	}
+	att, err := h.Queries.CreateAttachment(r.Context(), db.CreateAttachmentParams{
+		ID:           pgtype.UUID{Bytes: id, Valid: true},
+		WorkspaceID:  issue.WorkspaceID,
+		UploaderType: "member",
+		UploaderID:   pgtype.UUID{Bytes: share.CreatedBy, Valid: true},
+		Filename:     displayName,
+		Url:          link,
+		ContentType:  contentType,
+		SizeBytes:    int64(len(data)),
+		IssueID:      issue.ID,
+	})
+	if err != nil {
+		h.deleteS3Objects(r.Context(), []string{link})
+		slog.Error("public share attachment record failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "upload failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, publicAttachmentJSON(att.Attachment()))
+}
+
+// DownloadPublicIssueShareAttachment — GET /api/public/issue-shares/{code}/attachments/{id}
+func (h *Handler) DownloadPublicIssueShareAttachment(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	share, issue, _, ok := h.loadPublicIssueShare(w, r, code)
+	if !ok {
+		return
+	}
+	if !h.requirePublicShareAccess(w, r, share) {
+		return
+	}
+	parsed, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid attachment")
+		return
+	}
+	att, err := h.Queries.GetAttachmentByIDOnly(r.Context(), pgtype.UUID{Bytes: parsed, Valid: true})
+	if err != nil || uuidToString(att.IssueID) != uuidToString(issue.ID) || uuidToString(att.WorkspaceID) != uuidToString(issue.WorkspaceID) {
+		writeError(w, http.StatusNotFound, "attachment not found")
+		return
+	}
+	h.serveAttachmentDownload(w, r, att)
 }

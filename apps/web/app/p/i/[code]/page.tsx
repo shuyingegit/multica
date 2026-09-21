@@ -86,13 +86,62 @@ function formatCoords(lat: number, lon: number): string {
   return `${ns}${Math.abs(lat).toFixed(3)} ${ew}${Math.abs(lon).toFixed(3)}`;
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+function attachmentHref(code: string, id: string): string {
+  return `/api/public/issue-shares/${encodeURIComponent(code)}/attachments/${encodeURIComponent(id)}`;
+}
+
+function ShareAttachments({
+  code,
+  items,
+}: {
+  code: string;
+  items: PublicShareComment["attachments"];
+}) {
+  if (!items?.length) return null;
+  return (
+    <div className="mt-2 space-y-2">
+      {items.map((item) => {
+        const href = attachmentHref(code, item.id);
+        if (item.content_type.startsWith("image/")) {
+          return (
+            <a key={item.id} href={href} target="_blank" rel="noreferrer">
+              <img src={href} alt={item.filename} className="max-h-64 rounded-lg" />
+            </a>
+          );
+        }
+        return (
+          <a
+            key={item.id}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="block break-all text-caption underline"
+          >
+            {item.filename || "附件"}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function FileChips({ items, onRemove }: { items: File[]; onRemove: (index: number) => void }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((file, index) => (
+        <button
+          key={`${file.name}-${file.size}-${index}`}
+          type="button"
+          className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-border px-3 text-caption"
+          onClick={() => onRemove(index)}
+        >
+          <span className="truncate">{file.name || "附件"}</span>
+          <span className="text-muted-foreground">移除</span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function ClampText({ text }: { text: string }) {
@@ -165,9 +214,13 @@ export default function PublicIssueSharePage() {
   const [profile, setProfile] = useState<PublicShareGuestProfile | null>(null);
   const [nickDraft, setNickDraft] = useState("");
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, File[]>>({});
+  const [showResolved, setShowResolved] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const listRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileTarget = useRef("bottom");
   const mentionLinks = useRef<{ visible: string; markdown: string }[]>([]);
 
   useEffect(() => {
@@ -383,28 +436,45 @@ export default function PublicIssueSharePage() {
     );
   }
 
-  async function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const items = Array.from(e.clipboardData?.items ?? []);
-    const images = items.filter((i) => i.type.startsWith("image/"));
-    if (images.length === 0) return;
+  function addFiles(key: string, incoming: File[]) {
+    if (incoming.length === 0) return;
+    setFiles((prev) => {
+      const next = [...(prev[key] ?? []), ...incoming].slice(0, 8);
+      return { ...prev, [key]: next };
+    });
+  }
+
+  function onPasteFiles(key: string, e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const incoming = Array.from(e.clipboardData?.files ?? []);
+    if (incoming.length === 0) {
+      for (const item of Array.from(e.clipboardData?.items ?? [])) {
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (file) incoming.push(file);
+      }
+    }
+    if (incoming.length === 0) return;
     e.preventDefault();
-    const chunks: string[] = [];
-    for (const item of images) {
-      const file = item.getAsFile();
-      if (!file) continue;
-      const dataUrl = await fileToDataUrl(file);
-      chunks.push(`![image](${dataUrl})`);
-    }
-    if (chunks.length) {
-      setDraft((d) => (d ? `${d}\n${chunks.join("\n")}` : chunks.join("\n")));
-    }
+    addFiles(key, incoming);
+  }
+
+  function pickFiles(key: string) {
+    fileTarget.current = key;
+    fileInputRef.current?.click();
   }
 
   async function send(parentId?: string) {
+    const key = parentId ?? "bottom";
+    const pending = files[key] ?? [];
     const text = expandMentions((parentId ? replyDrafts[parentId] ?? "" : draft).trim());
-    if (!text || sending || !profile?.nickname || !profile.location) return;
+    if ((!text && pending.length === 0) || sending || !profile?.nickname || !profile.location) return;
     setSending(true);
     try {
+      const attachmentIds: string[] = [];
+      for (const file of pending) {
+        const uploaded = await api.uploadPublicIssueShareFile(code, file, token);
+        if (uploaded.id) attachmentIds.push(uploaded.id);
+      }
       await api.createPublicIssueShareComment(
         code,
         text,
@@ -412,12 +482,14 @@ export default function PublicIssueSharePage() {
         profile.nickname,
         profile.location,
         parentId,
+        attachmentIds,
       );
       if (parentId) {
         setReplyDrafts((prev) => ({ ...prev, [parentId]: "" }));
       } else {
         setDraft("");
       }
+      setFiles((prev) => ({ ...prev, [key]: [] }));
       await loadTimeline();
     } catch (e) {
       setError(e instanceof Error ? e.message : "发送失败");
@@ -426,6 +498,9 @@ export default function PublicIssueSharePage() {
     }
   }
 
+  const hiddenResolved = comments.filter((c) => c.thread_resolved).length;
+  const visibleComments = showResolved ? comments : comments.filter((c) => !c.thread_resolved);
+
   const timeline = useMemo(() => {
     const rows: Array<
       | { kind: "comment"; at: number; id: string; comment: PublicShareComment }
@@ -433,8 +508,8 @@ export default function PublicIssueSharePage() {
     > = [];
     const steps: PublicShareProgress[] = [];
     const flush = () => {
-      if (steps.length === 0) return;
       const first = steps[0];
+      if (!first) return;
       rows.push({
         kind: "progress",
         at: Date.parse(first.created_at) || 0,
@@ -442,29 +517,52 @@ export default function PublicIssueSharePage() {
         steps: steps.splice(0, steps.length),
       });
     };
-    const commentsByTime = [...comments].sort(
+    const sortedComments = [...visibleComments].sort(
       (a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0),
     );
-    const progressByTime = [...progress].sort(
-      (a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0),
-    );
+    const windows: Array<[number, number]> = [];
+    if (!showResolved) {
+      let start: number | null = null;
+      let end = 0;
+      for (const comment of [...comments].sort(
+        (a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0),
+      )) {
+        const at = Date.parse(comment.created_at) || 0;
+        if (comment.thread_resolved) {
+          if (start == null) start = at;
+          end = at;
+        } else if (start != null) {
+          windows.push([start, end]);
+          start = null;
+        }
+      }
+      if (start != null) windows.push([start, end]);
+    }
+    const inResolvedWindow = (at: number) => windows.some(([start, end]) => at >= start && at <= end);
+    const progressByTime = [...progress]
+      .filter((step) => !inResolvedWindow(Date.parse(step.created_at) || 0))
+      .sort((a, b) => (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0));
     let pi = 0;
-    for (const comment of commentsByTime) {
+    for (const comment of sortedComments) {
       const at = Date.parse(comment.created_at) || 0;
-      while (pi < progressByTime.length && (Date.parse(progressByTime[pi].created_at) || 0) <= at) {
-        steps.push(progressByTime[pi]);
+      while (pi < progressByTime.length) {
+        const step = progressByTime[pi];
+        if (!step || (Date.parse(step.created_at) || 0) > at) break;
+        steps.push(step);
         pi += 1;
       }
       flush();
       rows.push({ kind: "comment", at, id: comment.id, comment });
     }
     while (pi < progressByTime.length) {
-      steps.push(progressByTime[pi]);
+      const step = progressByTime[pi];
+      if (!step) break;
+      steps.push(step);
       pi += 1;
     }
     flush();
     return rows;
-  }, [comments, progress]);
+  }, [comments, progress, showResolved, visibleComments]);
 
   if (error && !meta) {
     return (
@@ -594,9 +692,18 @@ export default function PublicIssueSharePage() {
       ) : null}
 
       <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+        {hiddenResolved > 0 ? (
+          <button
+            type="button"
+            className="min-h-11 w-full rounded-xl border border-border bg-muted/30 px-3 text-left text-caption text-muted-foreground"
+            onClick={() => setShowResolved((value) => !value)}
+          >
+            {showResolved ? "收起已解决的对话" : `已解决的对话已折叠（${hiddenResolved}条）`}
+          </button>
+        ) : null}
         {timeline.length === 0 ? (
           <p className="py-8 text-center text-caption text-muted-foreground">
-            还没有消息。输入问题开始对话（可粘贴图片，输入 @ 点名）。
+            还没有消息。输入问题开始对话（可粘贴图片和文件，输入 @ 点名）。
           </p>
         ) : (
           timeline.map((row) => {
@@ -606,7 +713,8 @@ export default function PublicIssueSharePage() {
             const c = row.comment;
             const parsed = parseGuestComment(c.content);
             const guest = parsed.isGuest || !!c.is_guest;
-            const body = parsed.body;
+            const body =
+              parsed.body.trim() === "（附件）" && (c.attachments?.length ?? 0) > 0 ? "" : parsed.body;
             const name =
               c.author_name ||
               parsed.nickname ||
@@ -644,11 +752,21 @@ export default function PublicIssueSharePage() {
                   </p>
                   <div className="break-words">
                     <RichContent content={body} density="compact" />
+                    <ShareAttachments code={code} items={c.attachments} />
                   </div>
                 </div>
               </div>
               <div className="space-y-2 pl-10">
                 <MentionChips target={c.id} />
+                <FileChips
+                  items={files[c.id] ?? []}
+                  onRemove={(index) =>
+                    setFiles((prev) => ({
+                      ...prev,
+                      [c.id]: (prev[c.id] ?? []).filter((_, i) => i !== index),
+                    }))
+                  }
+                />
                 <div className="flex items-end gap-2">
                   <Textarea
                     rows={1}
@@ -658,11 +776,15 @@ export default function PublicIssueSharePage() {
                     onChange={(e) =>
                       setReplyDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))
                     }
+                    onPaste={(e) => onPasteFiles(c.id, e)}
                   />
+                  <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={() => pickFiles(c.id)}>
+                    附件
+                  </Button>
                   <Button
                     type="button"
                     className="min-h-11 shrink-0"
-                    disabled={sending || !(replyDrafts[c.id] ?? "").trim()}
+                    disabled={sending || (!(replyDrafts[c.id] ?? "").trim() && (files[c.id] ?? []).length === 0)}
                     onClick={() => void send(c.id)}
                   >
                     发送
@@ -678,13 +800,22 @@ export default function PublicIssueSharePage() {
       <div className="mt-3 shrink-0 space-y-2 border-t border-border pt-3">
         {error ? <p className="text-caption text-destructive">{error}</p> : null}
         <MentionChips target="bottom" />
+        <FileChips
+          items={files.bottom ?? []}
+          onRemove={(index) =>
+            setFiles((prev) => ({
+              ...prev,
+              bottom: (prev.bottom ?? []).filter((_, i) => i !== index),
+            }))
+          }
+        />
         <Textarea
           ref={taRef}
           rows={2}
-          placeholder="新开一条。点上面的名字即可 @，可粘贴图片。"
+          placeholder="新开一条。点上面的名字即可 @，可粘贴图片和文件。"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onPaste={(e) => void onPaste(e)}
+          onPaste={(e) => onPasteFiles("bottom", e)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -693,11 +824,27 @@ export default function PublicIssueSharePage() {
           }}
         />
         <div className="flex items-center justify-between gap-2">
-          <p className="text-caption text-muted-foreground">Ctrl/⌘ + Enter 发送</p>
-          <Button className="min-h-11" disabled={sending || !draft.trim()} onClick={() => void send()}>
+          <Button type="button" variant="outline" className="min-h-11" onClick={() => pickFiles("bottom")}>
+            附件
+          </Button>
+          <Button
+            className="min-h-11"
+            disabled={sending || (!draft.trim() && (files.bottom ?? []).length === 0)}
+            onClick={() => void send()}
+          >
             发送
           </Button>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            addFiles(fileTarget.current, Array.from(e.target.files ?? []));
+            e.target.value = "";
+          }}
+        />
       </div>
     </main>
   );

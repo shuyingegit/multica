@@ -23,6 +23,13 @@ export interface IssuePublicShareMeta {
   assignee_id?: string | null;
 }
 
+export interface PublicShareAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+}
+
 export interface PublicShareComment {
   id: string;
   author_type: string;
@@ -37,6 +44,9 @@ export interface PublicShareComment {
   author_avatar_url?: string | null;
   guest_nickname?: string | null;
   guest_location?: string | null;
+  parent_id?: string | null;
+  thread_resolved?: boolean;
+  attachments?: PublicShareAttachment[];
 }
 
 export interface PublicShareWork {

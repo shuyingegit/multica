@@ -10,6 +10,7 @@ export {
   type IssuePublicShare,
   type IssuePublicShareAuthMode,
   type IssuePublicShareMeta,
+  type PublicShareAttachment,
   type PublicShareComment,
   type PublicShareGuestProfile,
   type PublicShareProgress,

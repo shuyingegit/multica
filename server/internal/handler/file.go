@@ -848,6 +848,10 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.serveAttachmentDownload(w, r, att)
+}
+
+func (h *Handler) serveAttachmentDownload(w http.ResponseWriter, r *http.Request, att db.Attachment) {
 	if h.Storage == nil {
 		writeFeatureDisabled(w, "storage_not_configured", "storage not configured")
 		return

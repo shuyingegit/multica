@@ -7,7 +7,7 @@
 - 上游仓库：https://github.com/multica-ai/multica  
 - 官方文档：https://multica.ai/docs  
 - 自部署说明：见上游 `SELF_HOSTING.md`  
-- 当前同步基线：见仓库根目录 `UPSTREAM_BASE`（现为 `v0.5.0`）
+- 当前同步基线：见仓库根目录 `UPSTREAM_BASE`（现为 `53578958b`，官方 `v0.5.0` 之后 20 个提交）
 
 ---
 

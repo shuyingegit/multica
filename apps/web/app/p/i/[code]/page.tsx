@@ -197,6 +197,14 @@ function ShareDropZone({
   );
 }
 
+function hideLinkedAttachmentMarkdown(body: string): string {
+  return body
+    .replace(/!\[[^\]]*\]\((?:https?:\/\/[^)\s]+)?\/api\/attachments\/[^)\s]+\)/g, "")
+    .replace(/(^|\n)\[[^\]]*\]\((?:https?:\/\/[^)\s]+)?\/api\/attachments\/[^)\s]+\)/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function FileChips({ items, onRemove }: { items: File[]; onRemove: (index: number) => void }) {
   if (items.length === 0) return null;
   return (
@@ -790,8 +798,9 @@ export default function PublicIssueSharePage() {
             const c = row.comment;
             const parsed = parseGuestComment(c.content);
             const guest = parsed.isGuest || !!c.is_guest;
-            const body =
-              parsed.body.trim() === "（附件）" && (c.attachments?.length ?? 0) > 0 ? "" : parsed.body;
+            const body = hideLinkedAttachmentMarkdown(
+              parsed.body.trim() === "（附件）" && (c.attachments?.length ?? 0) > 0 ? "" : parsed.body,
+            );
             const name =
               c.author_name ||
               parsed.nickname ||

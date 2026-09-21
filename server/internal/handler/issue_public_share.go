@@ -368,16 +368,19 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		return
 	}
 	content := sanitizeNullBytes(strings.TrimSpace(req.Content))
-	attachmentIDs, attOK := h.publicShareCommentAttachments(w, r, issue, req.AttachmentIDs)
+	attachments, attOK := h.publicShareCommentAttachments(w, r, issue, req.AttachmentIDs)
 	if !attOK {
 		return
 	}
-	if content == "" && len(attachmentIDs) == 0 {
-		writeError(w, http.StatusBadRequest, "content is required")
-		return
+	fileMarkdown := publicShareAttachmentMarkdown(h, attachments)
+	if content == "" || content == "（附件）" {
+		content = fileMarkdown
+	} else if fileMarkdown != "" {
+		content = content + "\n\n" + fileMarkdown
 	}
 	if content == "" {
-		content = "（附件）"
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
 	}
 	nickname := strings.TrimSpace(req.Nickname)
 	if nickname == "" {
@@ -424,7 +427,11 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusInternalServerError, "failed to create comment")
 		return
 	}
-	if len(attachmentIDs) > 0 {
+	if len(attachments) > 0 {
+		attachmentIDs := make([]pgtype.UUID, 0, len(attachments))
+		for _, a := range attachments {
+			attachmentIDs = append(attachmentIDs, a.ID)
+		}
 		if err := h.Queries.LinkAttachmentsToComment(r.Context(), db.LinkAttachmentsToCommentParams{
 			CommentID: created.ID,
 			IssueID:   issue.ID,
@@ -671,7 +678,7 @@ func publicAttachmentJSON(a db.Attachment) map[string]any {
 	}
 }
 
-func (h *Handler) publicShareCommentAttachments(w http.ResponseWriter, r *http.Request, issue db.Issue, raw []string) ([]pgtype.UUID, bool) {
+func (h *Handler) publicShareCommentAttachments(w http.ResponseWriter, r *http.Request, issue db.Issue, raw []string) ([]db.Attachment, bool) {
 	if len(raw) == 0 {
 		return nil, true
 	}
@@ -715,7 +722,47 @@ func (h *Handler) publicShareCommentAttachments(w http.ResponseWriter, r *http.R
 			return nil, false
 		}
 	}
-	return ids, true
+	return rows, true
+}
+
+// publicShareAttachmentMarkdown writes the same markdown the internal composer
+// stores in the comment body: images as ![](url), other files as [name](url),
+// using the durable attachment URL. A bare attachment row is not what the
+// issue thread or the agent reads.
+func publicShareAttachmentMarkdown(h *Handler, rows []db.Attachment) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, a := range rows {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		label := markdownAttachmentLabel(a.Filename)
+		href := h.buildMarkdownURL(a, uuidToString(a.ID))
+		if strings.HasPrefix(a.ContentType, "image/") {
+			b.WriteString("![")
+			b.WriteString(label)
+			b.WriteString("](")
+			b.WriteString(href)
+			b.WriteString(")")
+			continue
+		}
+		b.WriteString("[")
+		b.WriteString(label)
+		b.WriteString("](")
+		b.WriteString(href)
+		b.WriteString(")")
+	}
+	return b.String()
+}
+
+func markdownAttachmentLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "附件"
+	}
+	return strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "\n", " ").Replace(name)
 }
 
 func safePublicUploadName(name string) string {

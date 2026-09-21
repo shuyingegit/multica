@@ -125,6 +125,78 @@ function ShareAttachments({
   );
 }
 
+function useShareFileDrop(onFiles: (files: File[]) => void) {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const onFilesRef = useRef(onFiles);
+  onFilesRef.current = onFiles;
+
+  useEffect(() => {
+    const clear = () => setIsDragOver(false);
+    document.addEventListener("drop", clear);
+    document.addEventListener("dragend", clear);
+    const blockNavigate = (event: globalThis.DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    document.addEventListener("dragover", blockNavigate);
+    return () => {
+      document.removeEventListener("drop", clear);
+      document.removeEventListener("dragend", clear);
+      document.removeEventListener("dragover", blockNavigate);
+    };
+  }, []);
+
+  return {
+    isDragOver,
+    dropZoneProps: {
+      onDragEnter: (event: React.DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) setIsDragOver(true);
+      },
+      onDragOver: (event: React.DragEvent<HTMLElement>) => {
+        event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) event.dataTransfer.dropEffect = "copy";
+      },
+      onDragLeave: (event: React.DragEvent<HTMLElement>) => {
+        const next = event.relatedTarget;
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setIsDragOver(false);
+      },
+      onDrop: (event: React.DragEvent<HTMLElement>) => {
+        const alreadyHandled = event.nativeEvent.defaultPrevented;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsDragOver(false);
+        if (alreadyHandled) return;
+        const dropped = Array.from(event.dataTransfer.files ?? []);
+        if (dropped.length > 0) onFilesRef.current(dropped);
+      },
+    },
+  };
+}
+
+function ShareDropZone({
+  onFiles,
+  className,
+  children,
+  label = "松开即可添加附件",
+}: {
+  onFiles: (files: File[]) => void;
+  className?: string;
+  children: React.ReactNode;
+  label?: string;
+}) {
+  const { isDragOver, dropZoneProps } = useShareFileDrop(onFiles);
+  return (
+    <div className={`relative z-20 ${className ?? ""}`} {...dropZoneProps}>
+      {children}
+      {isDragOver ? (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-[inherit] border-2 border-dashed border-brand bg-background/90 px-4 text-center text-body">
+          {label}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function FileChips({ items, onRemove }: { items: File[]; onRemove: (index: number) => void }) {
   if (items.length === 0) return null;
   return (
@@ -463,6 +535,8 @@ export default function PublicIssueSharePage() {
     fileInputRef.current?.click();
   }
 
+  const { isDragOver, dropZoneProps } = useShareFileDrop((incoming) => addFiles("bottom", incoming));
+
   async function send(parentId?: string) {
     const key = parentId ?? "bottom";
     const pending = files[key] ?? [];
@@ -658,7 +732,10 @@ export default function PublicIssueSharePage() {
   }
 
   return (
-    <main className="mx-auto flex h-dvh max-w-2xl flex-col bg-background px-3 pb-[env(safe-area-inset-bottom)] pt-4 sm:px-4 sm:py-6">
+    <main
+      className="relative mx-auto flex h-dvh max-w-2xl flex-col bg-background px-3 pb-[env(safe-area-inset-bottom)] pt-4 sm:px-4 sm:py-6"
+      {...dropZoneProps}
+    >
       <header className="mb-3 shrink-0 border-b border-border pb-3">
         <div className="min-w-0">
           <p className="text-caption text-muted-foreground">{meta.identifier}</p>
@@ -756,7 +833,11 @@ export default function PublicIssueSharePage() {
                   </div>
                 </div>
               </div>
-              <div className="space-y-2 pl-10">
+              <ShareDropZone
+                className="space-y-2 pl-10"
+                label="松开即可加到这条回复"
+                onFiles={(incoming) => addFiles(c.id, incoming)}
+              >
                 <MentionChips target={c.id} />
                 <FileChips
                   items={files[c.id] ?? []}
@@ -790,7 +871,7 @@ export default function PublicIssueSharePage() {
                     发送
                   </Button>
                 </div>
-              </div>
+              </ShareDropZone>
               </div>
             );
           })
@@ -812,7 +893,7 @@ export default function PublicIssueSharePage() {
         <Textarea
           ref={taRef}
           rows={2}
-          placeholder="新开一条。点上面的名字即可 @，可粘贴图片和文件。"
+          placeholder="把图片或文件拖进这里，也可以粘贴，或点「附件」。"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onPaste={(e) => onPasteFiles("bottom", e)}
@@ -824,9 +905,12 @@ export default function PublicIssueSharePage() {
           }}
         />
         <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="outline" className="min-h-11" onClick={() => pickFiles("bottom")}>
-            附件
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" className="min-h-11" onClick={() => pickFiles("bottom")}>
+              附件
+            </Button>
+            <p className="text-caption text-muted-foreground">拖进来，或 Ctrl/⌘ + Enter 发送</p>
+          </div>
           <Button
             className="min-h-11"
             disabled={sending || (!draft.trim() && (files.bottom ?? []).length === 0)}
@@ -846,6 +930,11 @@ export default function PublicIssueSharePage() {
           }}
         />
       </div>
+      {isDragOver ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-brand bg-background/90 px-6 text-center text-body">
+          松开即可添加附件
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -93,3 +93,7 @@ echo "    FE http://127.0.0.1:${FRONTEND_PORT}/"
 echo "    BE http://127.0.0.1:${BACKEND_PORT}/"
 echo "    tip: UI-only → ./scripts/redeploy-fork-fast.sh frontend"
 echo "    tip: keep BuildKit cache (do not prune) so the 2nd run is much faster"
+
+# 自动清理悬空镜像与构建缓存
+docker image prune -f
+docker builder prune -f

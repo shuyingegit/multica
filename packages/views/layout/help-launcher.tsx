@@ -23,6 +23,7 @@ import { useConfigStore } from "@multica/core/config";
 import { isDesktopShell } from "../platform/local-directory";
 import { DISCORD_URL, DiscordIcon } from "./discord";
 import { useT } from "../i18n";
+import { docsLocalePrefix } from "../common/docs-locale";
 
 const DOCS_URL = "https://multica.ai/docs";
 const CHANGELOG_URL = "https://multica.ai/changelog";
@@ -60,7 +61,7 @@ export async function fetchOfficialLatestVersion(
 }
 
 export function HelpLauncher() {
-  const { t } = useT("layout");
+  const { t, i18n } = useT("layout");
   const serverVersion = useConfigStore((state) => state.serverVersion);
   const upstreamBaseVersion = useConfigStore((state) => state.upstreamBaseVersion);
   const [officialLatest, setOfficialLatest] = useState<string | null>(null);
@@ -141,7 +142,11 @@ export function HelpLauncher() {
         )}
         <DropdownMenuItem
           render={
-            <a href={DOCS_URL} target="_blank" rel="noopener noreferrer" />
+            <a
+              href={`${DOCS_URL}${docsLocalePrefix(i18n.language)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            />
           }
         >
           <BookOpen className="h-3.5 w-3.5" />

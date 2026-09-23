@@ -100,11 +100,36 @@ describe("AppLink", () => {
     expect(callerFocus).toHaveBeenCalledTimes(1);
   });
 
+  it("calls adapter.prefetch on pointerdown (primary button), alongside the caller's onPointerDown", () => {
+    const prefetch = vi.fn();
+    const callerPointerDown = vi.fn();
+    const adapter = makeAdapter({ prefetch });
+
+    renderLink(adapter, {
+      href: "/issues",
+      onPointerDown: callerPointerDown,
+    });
+
+    fireEvent.pointerDown(screen.getByText("go"), { button: 0 });
+    expect(prefetch).toHaveBeenCalledWith("/issues");
+    expect(callerPointerDown).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips prefetch on non-primary pointerdown", () => {
+    const prefetch = vi.fn();
+    const adapter = makeAdapter({ prefetch });
+
+    renderLink(adapter, { href: "/issues" });
+    fireEvent.pointerDown(screen.getByText("go"), { button: 2 });
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
   it("is a no-op when adapter does not implement prefetch (desktop)", () => {
     const adapter = makeAdapter();
     renderLink(adapter);
     expect(() => fireEvent.mouseEnter(screen.getByText("go"))).not.toThrow();
     expect(() => fireEvent.focus(screen.getByText("go"))).not.toThrow();
+    expect(() => fireEvent.pointerDown(screen.getByText("go"))).not.toThrow();
   });
 
   it("modifier-click (cmd / ctrl) delegates to openInNewTab and does NOT push", () => {

@@ -1,8 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { Issue } from "../types";
 import {
+  issueAttachmentsOptions,
   issueDetailOptions,
   issueKeys,
+  issueReactionsOptions,
+  issueSubscribersOptions,
+  issueTasksOptions,
   issueTimelineOptions,
 } from "./queries";
 
@@ -58,9 +62,19 @@ export function mirrorIssueDetailCache(
   }
 }
 
+/** Warm the secondary issue-detail queries that mount with the page. */
+function prefetchIssueSecondary(qc: QueryClient, issueId: string): void {
+  void qc.prefetchQuery(issueTimelineOptions(issueId));
+  void qc.prefetchQuery(issueReactionsOptions(issueId));
+  void qc.prefetchQuery(issueSubscribersOptions(issueId));
+  void qc.prefetchQuery(issueAttachmentsOptions(issueId));
+  void qc.prefetchQuery(issueTasksOptions(issueId));
+}
+
 /**
- * Warm detail + timeline for an issue URL segment (UUID or identifier).
- * Safe to call from hover/focus prefetch — TanStack dedupes in-flight queries.
+ * Warm detail + timeline (+ reactions/subscribers/attachments/tasks) for an
+ * issue URL segment (UUID or identifier). Safe to call from hover / focus /
+ * pointerdown prefetch — TanStack dedupes in-flight queries.
  */
 export function prefetchIssueNavigation(
   qc: QueryClient,
@@ -78,14 +92,14 @@ export function prefetchIssueNavigation(
 
   if (isIssueUuid(decoded)) {
     void qc.prefetchQuery(issueDetailOptions(wsId, decoded));
-    void qc.prefetchQuery(issueTimelineOptions(decoded));
+    prefetchIssueSecondary(qc, decoded);
     return;
   }
 
   const cached = findCachedIssueByIdentifier(qc, wsId, decoded);
   if (cached) {
     mirrorIssueDetailCache(qc, wsId, cached);
-    void qc.prefetchQuery(issueTimelineOptions(cached.id));
+    prefetchIssueSecondary(qc, cached.id);
     // Still poke the identifier key so resolve observers settle without network
     // when Infinity-stale data is already present.
     void qc.prefetchQuery(issueDetailOptions(wsId, decoded));
@@ -96,7 +110,7 @@ export function prefetchIssueNavigation(
     const issue = qc.getQueryData<Issue>(issueKeys.detail(wsId, decoded));
     if (!issue) return;
     mirrorIssueDetailCache(qc, wsId, issue);
-    void qc.prefetchQuery(issueTimelineOptions(issue.id));
+    prefetchIssueSecondary(qc, issue.id);
   });
 }
 

@@ -23,6 +23,7 @@ export const AppLink = forwardRef<HTMLAnchorElement, AppLinkProps>(
       onAuxClick,
       onMouseEnter,
       onFocus,
+      onPointerDown,
       target,
       newTabTitle,
       ...props
@@ -83,6 +84,8 @@ export const AppLink = forwardRef<HTMLAnchorElement, AppLinkProps>(
         return;
       }
       e.preventDefault();
+      // Kick caches again on the click path (touch / no prior hover).
+      prefetch?.(href);
       push(href);
     };
 
@@ -125,6 +128,14 @@ export const AppLink = forwardRef<HTMLAnchorElement, AppLinkProps>(
       onFocus?.(e);
     };
 
+    // pointerdown fires before click/mouseenter on touch and before the
+    // navigation push on desktop — warm route + issue caches a frame earlier
+    // so pin A↔B↔C switches start with data already in flight.
+    const handlePointerDown = (e: React.PointerEvent<HTMLAnchorElement>) => {
+      if (e.button === 0) prefetch?.(href);
+      onPointerDown?.(e);
+    };
+
     return (
       <a
         ref={ref}
@@ -135,13 +146,14 @@ export const AppLink = forwardRef<HTMLAnchorElement, AppLinkProps>(
         rel={target === "_blank" ? "noopener noreferrer" : undefined}
         // Spread props first so that the navigation handlers below cannot be
         // silently overridden by a caller passing
-        // onClick/onAuxClick/onMouseEnter/onFocus through {...rest}. AppLink
-        // owns these four events.
+        // onClick/onAuxClick/onMouseEnter/onFocus/onPointerDown through {...rest}.
+        // AppLink owns these navigation-prefetch events.
         {...props}
         onClick={handleClick}
         onAuxClick={handleAuxClick}
         onMouseEnter={handleMouseEnter}
         onFocus={handleFocus}
+        onPointerDown={handlePointerDown}
       >
         {children}
       </a>

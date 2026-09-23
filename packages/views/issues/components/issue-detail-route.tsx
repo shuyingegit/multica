@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCanonicalIssue } from "@multica/core/issues/canonical-id";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useNavigation } from "../../navigation";
 import { IssueDetail, IssueDetailSkeleton, IssueNotFound } from "./issue-detail";
+import { useIssueDetailKeepAlive } from "./issue-detail-keepalive";
 
 interface IssueDetailRouteProps {
   /**
@@ -52,7 +53,7 @@ export function parseCommentHighlightHash(hash: string): string | undefined {
 }
 
 function useCommentHighlightHash(): { hash: string; commentId?: string } {
-  const read = () => typeof window === "undefined" ? "" : window.location.hash;
+  const read = () => (typeof window === "undefined" ? "" : window.location.hash);
   const [hash, setHash] = useState(read);
 
   useEffect(() => {
@@ -74,11 +75,16 @@ function useCommentHighlightHash(): { hash: string; commentId?: string } {
  *  - rewrite the address bar to the canonical identifier URL. That belongs to
  *    the route and only the route — the inbox renders `IssueDetail` in a side
  *    panel, where replacing the URL would navigate the user out of the inbox.
+ *
+ * When wrapped by `IssueDetailKeepAliveHost` (web `issues/layout`), the detail
+ * tree is retained across pin A↔B↔C navigations; this route only activates the
+ * cached entry and renders nothing of its own.
  */
 export function IssueDetailRoute({ routeId, onDelete }: IssueDetailRouteProps) {
   const wsId = useWorkspaceId();
   const { canonicalId, issue, isResolving, notFound } = useCanonicalIssue(wsId, routeId);
   const highlight = useCommentHighlightHash();
+  const keepAlive = useIssueDetailKeepAlive();
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -90,6 +96,33 @@ export function IssueDetailRoute({ routeId, onDelete }: IssueDetailRouteProps) {
 
   useCanonicalIssueUrl(routeId, issue?.identifier, highlight.hash);
 
+  useLayoutEffect(() => {
+    if (!keepAlive || !canonicalId || isResolving || notFound) return;
+    keepAlive.activate({
+      issueId: canonicalId,
+      onDelete,
+      highlightCommentId: highlight.commentId,
+      defaultSidebarOpen: !narrow,
+    });
+  }, [
+    keepAlive,
+    canonicalId,
+    isResolving,
+    notFound,
+    onDelete,
+    highlight.commentId,
+    narrow,
+  ]);
+
+  // Only hide kept trees when this route instance leaves (list / other page),
+  // not when activate deps alone change.
+  useLayoutEffect(() => {
+    if (!keepAlive) return;
+    return () => {
+      keepAlive.deactivate();
+    };
+  }, [keepAlive, routeId]);
+
   if (isResolving) return <IssueDetailSkeleton />;
 
   // Render not-found here rather than handing the unresolved segment down.
@@ -97,6 +130,9 @@ export function IssueDetailRoute({ routeId, onDelete }: IssueDetailRouteProps) {
   // refetch it, and restart this component's resolve/remount cycle — an
   // unbounded request loop that never settles. See `CanonicalIssue.notFound`.
   if (notFound || !canonicalId) return <IssueNotFound showBackLink={!onDelete} />;
+
+  // Host owns the detail tree so pin switches keep prior mounts alive.
+  if (keepAlive) return null;
 
   return (
     <IssueDetail

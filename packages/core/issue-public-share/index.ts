@@ -16,3 +16,10 @@ export {
   type PublicShareProgress,
   type PublicShareWork,
 } from "./types";
+export {
+  formatCoords,
+  formatZhAdminAreas,
+  parseStoredCoords,
+  resolveGuestLocationLabel,
+  reverseGeocode,
+} from "./geocode";

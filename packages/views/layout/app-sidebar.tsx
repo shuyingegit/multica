@@ -85,9 +85,11 @@ import {
 } from "@multica/core/pins";
 import {
   issueDetailOptions,
-  issueTimelineOptions,
 } from "@multica/core/issues/queries";
-import { mirrorIssueDetailCache } from "@multica/core/issues/prefetch";
+import {
+  mirrorIssueDetailCache,
+  prefetchIssueNavigation,
+} from "@multica/core/issues/prefetch";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useWSEvent } from "@multica/core/realtime";
@@ -827,19 +829,17 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   );
   useWSEvent("comment:created", onPinCommentCreated);
 
-  // Warm the identifier-keyed detail + timeline caches so pin A↔B↔C switches
-  // skip the resolve skeleton and land on cached scroll restore sooner.
+  // Warm detail + timeline + secondary caches so pin A↔B↔C switches skip the
+  // resolve skeleton and land on cached scroll restore sooner.
   useEffect(() => {
     if (!wsId) return;
     for (const issue of pinnedIssueById.values()) {
       mirrorIssueDetailCache(queryClient, wsId, issue);
-      void queryClient.prefetchQuery(issueDetailOptions(wsId, issue.id));
-      if (issue.identifier) {
-        void queryClient.prefetchQuery(
-          issueDetailOptions(wsId, issue.identifier),
-        );
+      const segment = issue.identifier || issue.id;
+      prefetchIssueNavigation(queryClient, wsId, segment);
+      if (issue.identifier && issue.identifier !== issue.id) {
+        prefetchIssueNavigation(queryClient, wsId, issue.id);
       }
-      void queryClient.prefetchQuery(issueTimelineOptions(issue.id));
     }
   }, [pinnedIssueById, queryClient, wsId]);
 

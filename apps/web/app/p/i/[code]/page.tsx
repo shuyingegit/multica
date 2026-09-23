@@ -4,9 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@multica/core/api";
 import {
+  formatCoords,
   formatShareRelativeTime,
   loadGuestProfile,
   parseGuestComment,
+  parseStoredCoords,
+  reverseGeocode,
   saveGuestProfile,
   type IssuePublicShareMeta,
   type PublicShareComment,
@@ -29,6 +32,25 @@ function avatarHue(name: string): number {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return h % 360;
+}
+
+function GuestLocationLabel({ location }: { location?: string | null }) {
+  const [label, setLabel] = useState(location ?? "");
+  useEffect(() => {
+    const raw = (location ?? "").trim();
+    setLabel(raw);
+    const coords = parseStoredCoords(raw);
+    if (!coords) return;
+    let cancelled = false;
+    void reverseGeocode(coords.lat, coords.lon).then((place) => {
+      if (!cancelled && place) setLabel(place);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [location]);
+  if (!label) return null;
+  return <span>{label}</span>;
 }
 
 function ShareAvatar({ name, url }: { name: string; url?: string | null }) {
@@ -56,35 +78,7 @@ function ShareAvatar({ name, url }: { name: string; url?: string | null }) {
   );
 }
 
-async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=16&addressdetails=1`;
-    const res = await fetch(url, {
-      headers: { Accept: "application/json", "Accept-Language": "zh-CN,zh;q=0.9" },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      address?: Record<string, string>;
-    };
-    const a = data.address ?? {};
-    const city = a.city || a.town || a.county || a.state || "";
-    const road = a.road || a.neighbourhood || a.suburb || a.village || "";
-    const parts = [city, road].filter(Boolean);
-    if (parts.length >= 2) return parts.join("·");
-    // City-only / country-only is not specific enough.
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 type LocGate = "idle" | "asking" | "denied" | "unsupported" | "failed";
-
-function formatCoords(lat: number, lon: number): string {
-  const ns = lat >= 0 ? "北纬" : "南纬";
-  const ew = lon >= 0 ? "东经" : "西经";
-  return `${ns}${Math.abs(lat).toFixed(3)} ${ew}${Math.abs(lon).toFixed(3)}`;
-}
 
 function attachmentHref(code: string, id: string): string {
   return `/api/public/issue-shares/${encodeURIComponent(code)}/attachments/${encodeURIComponent(id)}`;
@@ -833,7 +827,7 @@ export default function PublicIssueSharePage() {
                 >
                   <p className="mb-1 flex flex-wrap items-baseline gap-x-2 text-caption text-muted-foreground">
                     <span className="font-medium text-foreground">{name}</span>
-                    {loc ? <span>{loc}</span> : null}
+                    {loc ? <GuestLocationLabel location={loc} /> : null}
                     <span>{formatShareRelativeTime(c.created_at, nowMs)}</span>
                   </p>
                   <div className="break-words">

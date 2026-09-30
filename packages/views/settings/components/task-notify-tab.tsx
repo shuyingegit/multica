@@ -26,7 +26,7 @@ import {
 import { useT } from "../../i18n";
 
 /**
- * Settings → Integrations → 任务结束推送.
+ * Settings → Channels → 任务结束推送.
  * Two outbound channels for the same purpose (agent task completed/failed):
  *   1. WeChat service-account URL (user supplies the wxsend-style URL)
  *   2. WeChat ClawBot via PushPlus (endpoint/channel fixed; user supplies token)

@@ -4,14 +4,15 @@ import { SlackMark } from "./slack-mark";
 import { TelegramMark } from "./telegram-mark";
 import { WecomMark } from "./wecom-mark";
 
-type IntegrationChannel = "lark" | "slack" | "dingtalk" | "wecom" | "telegram";
+type BrandChannel = "lark" | "slack" | "dingtalk" | "wecom" | "telegram";
 
 // Every channel gets its own brand mark, never a generic lucide glyph: the icon
 // is what tells a reader which platform the section belongs to, and a stand-in
 // speech bubble or plug says nothing (see WecomMark, #6585). lucide-react ships
 // no brand icons, so a new channel needs its own `*-mark.tsx` before it can be
-// listed here.
-export function IntegrationChannelIcon({ channel }: { channel: IntegrationChannel }) {
+// listed here. Fork-only entries (e.g. task-notify) render a lucide icon in
+// ChannelsTab instead.
+export function IntegrationChannelIcon({ channel }: { channel: BrandChannel }) {
   const icon = {
     lark: <LarkMark className="h-4 w-4" />,
     slack: <SlackMark className="h-4 w-4" />,

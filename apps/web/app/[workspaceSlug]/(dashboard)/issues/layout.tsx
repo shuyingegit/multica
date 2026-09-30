@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { IssueDetailKeepAliveHost } from "@multica/views/issues/components/issue-detail-keepalive";
+import { IssueDetailKeepAliveHost } from "@multica/views/issues/components";
 
 /**
  * Survives `/issues/:id` param changes so pin A↔B↔C can keep prior detail

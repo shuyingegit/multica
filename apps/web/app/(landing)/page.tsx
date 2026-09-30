@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     absolute: "首页",
   },
   description:
-    "Open-source platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills.",
+    "Source-available platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills.",
   openGraph: {
     title: "首页",
     description:

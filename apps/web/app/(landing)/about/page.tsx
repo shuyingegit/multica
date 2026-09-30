@@ -4,7 +4,7 @@ import { AboutPageClient } from "@/features/landing/components/about-page-client
 export const metadata: Metadata = {
   title: "关于",
   description:
-    "Learn about Multica — multiplexed information and computing agent. An open-source project management platform for human + agent teams.",
+    "Learn about Multica — multiplexed information and computing agent. A source-available project management platform for human + agent teams.",
   openGraph: {
     title: "关于",
     description:

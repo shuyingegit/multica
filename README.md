@@ -51,6 +51,17 @@
 - 深链可选：`MULTICA_TASK_NOTIFY_APP_URL` / `MULTICA_PUBLIC_URL`；推送正文末尾附带 issue 链接，并尽量锚到本次回复的 `#comment-{id}`，点开即可滚到该条消息
 - 实现：`server/internal/notify` + `task_notify_listener`；前端 `task-notify-tab`
 
+### 5. 连续确认（评论发送栏）
+
+发评论时默认勾选 **「连续确认」**：
+
+- 智能体每轮结束后，若票仍未 `in_review`/`done` 且没有其他智能体在跑，系统会自动续跑（最多 5 轮）
+- 注入 handoff 说明：自行决策推进，不要因可自行解决的问题停下来等用户
+- 卡住（`blocked` / 失败）或超过 5 轮 → 系统评论询问你「继续」或「结束」
+- 取消勾选发送 = 关闭本票自动续跑
+
+实现：`continuous_confirm` 评论字段 + issue metadata + CompleteTask/FailTask 续跑。
+
 ### 6. Issue 对外对话分享
 
 工作区成员可在 Issue 详情点「对外对话」（分享图标）：

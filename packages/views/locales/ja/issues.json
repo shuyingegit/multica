@@ -630,7 +630,9 @@
     "recipient_count_other": "{{count}} 個のエージェントが受け取ります",
     "steer_attachment_notice": "実行中に追加できるのはテキストのみのため、ファイル付きのメッセージはこの実行の後に処理されます。",
     "restart_send": "停止して送信",
-    "restart_failed": "現在の実行を停止できませんでした。メッセージは送信されていません。"
+    "restart_failed": "現在の実行を停止できませんでした。メッセージは送信されていません。",
+    "continuous_confirm": "連続確認",
+    "continuous_confirm_hint": "オンにすると、未完了の場合は各ターン後に自動で続行します。行き詰まりや上限到達時に確認します。オフにするとこのチケットの自動続行を止めます。"
   },
   "reply": {
     "placeholder": "返信を残す...",

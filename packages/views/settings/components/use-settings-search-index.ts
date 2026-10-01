@@ -3,7 +3,14 @@
 import { useMemo } from "react";
 import { useT } from "../../i18n";
 import type { SettingsSearchEntry } from "./settings-search";
-import { CHANNEL_INTEGRATIONS } from "./settings-navigation";
+import { CHANNEL_INTEGRATIONS, type ChannelIntegration } from "./settings-navigation";
+
+/** Fork channel IDs use kebab-case in URLs; i18n keys stay snake_case. */
+type ChannelI18nKey = "lark" | "slack" | "dingtalk" | "wecom" | "telegram" | "task_notify";
+
+function channelToI18nKey(channel: ChannelIntegration): ChannelI18nKey {
+  return channel === "task-notify" ? "task_notify" : channel;
+}
 
 const NOTIFICATION_GROUPS = [
   "assignments",
@@ -196,12 +203,15 @@ export function useSettingsSearchIndex(
         title: t(($) => $.pr_merge_status.label),
         description: t(($) => $.pr_merge_status.description),
       },
-      ...CHANNEL_INTEGRATIONS.map((channel) => ({
-        tab: "channels",
-        integration: channel,
-        title: t(($) => $[channel].section_title),
-        description: t(($) => $[channel].page_description),
-      })),
+      ...CHANNEL_INTEGRATIONS.map((channel) => {
+        const i18nKey = channelToI18nKey(channel);
+        return {
+          tab: "channels" as const,
+          integration: channel,
+          title: t(($) => $[i18nKey].section_title),
+          description: t(($) => $[i18nKey].page_description),
+        };
+      }),
       {
         tab: "mcp",
         title: t(($) => $.page.tabs.mcp),

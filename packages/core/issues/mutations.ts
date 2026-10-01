@@ -833,6 +833,7 @@ export function useCreateComment(issueId: string) {
       attachmentIds,
       suppressAgentIds,
       steerTaskIds,
+      continuousConfirm,
     }: {
       content: string;
       type?: string;
@@ -841,7 +842,9 @@ export function useCreateComment(issueId: string) {
       suppressAgentIds?: string[];
       /** Running turns this comment goes into instead of a follow-up run. */
       steerTaskIds?: string[];
-    }) => api.createComment(issueId, content, type, parentId, attachmentIds, suppressAgentIds, steerTaskIds),
+      /** SCS fork: keep waking the agent until the issue is finished. */
+      continuousConfirm?: boolean;
+    }) => api.createComment(issueId, content, type, parentId, attachmentIds, suppressAgentIds, steerTaskIds, continuousConfirm),
     onSuccess: (comment) => {
       if (comment.issue_revision) {
         onIssueAuxiliaryRevision(qc, wsId, issueId, comment.issue_revision);

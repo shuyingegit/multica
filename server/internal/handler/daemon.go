@@ -2625,6 +2625,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		// also being told them, and a run that does not still needs them for
 		// workflow step 3 ("is it already in progress", "is it mine").
 		resp.IssueStatus = issue.Status
+		injectContinuousConfirmHandoff(&resp, issue.Metadata)
 		if issue.AssigneeType.Valid {
 			resp.IssueAssigneeType = issue.AssigneeType.String
 		}
@@ -4356,6 +4357,9 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	// input is not silently dropped. Agent replays are restricted to explicit
 	// mentions and recorded worker inputs; see reconcileCommentsOnCompletion.
 	h.reconcileCommentsOnCompletion(r.Context(), task)
+	// SCS fork: continuous confirm — if the issue still needs work and no other
+	// agent is active, either auto-continue or ask the user.
+	h.maybeContinueContinuousConfirm(r.Context(), task, "completed")
 	// The terminal transaction and completion reconciliation are committed.
 	// Wake the owning runtime now so queued work that was blocked by this
 	// task's agent capacity or serialization key is re-claimed immediately.
@@ -5054,6 +5058,7 @@ func (h *Handler) failTask(w http.ResponseWriter, r *http.Request, taskID, works
 		return
 	}
 	h.TaskService.NotifyTaskFinished(*task)
+	h.maybeContinueContinuousConfirm(r.Context(), task, "failed")
 
 	// Best-effort revoke of the mat_ task token minted at claim. Same
 	// rationale as CompleteTask — eager deletion shrinks the post-

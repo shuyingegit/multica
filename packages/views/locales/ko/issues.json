@@ -630,7 +630,9 @@
     "recipient_count_other": "에이전트 {{count}}개가 받습니다",
     "steer_attachment_notice": "실행 중에는 텍스트만 추가할 수 있어, 파일이 있는 메시지는 이번 실행 후에 처리됩니다.",
     "restart_send": "중지하고 보내기",
-    "restart_failed": "현재 실행을 중지하지 못했습니다. 메시지는 보내지 않았습니다."
+    "restart_failed": "현재 실행을 중지하지 못했습니다. 메시지는 보내지 않았습니다.",
+    "continuous_confirm": "연속 확인",
+    "continuous_confirm_hint": "선택 시 이슈가 끝나지 않으면 매 턴 후 자동으로 이어갑니다. 막히거나 한도에 도달하면 묻습니다. 해제하면 이 이슈의 자동 연속을 멈춥니다."
   },
   "reply": {
     "placeholder": "답글 남기기...",

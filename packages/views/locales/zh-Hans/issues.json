@@ -630,7 +630,9 @@
     "recipient_count_other": "{{count}} 个智能体会收到",
     "steer_attachment_notice": "插话只支持文字，带附件的消息会在本轮结束后处理。",
     "restart_send": "停止并发送",
-    "restart_failed": "没能停止当前运行，消息还没有发送。"
+    "restart_failed": "没能停止当前运行，消息还没有发送。",
+    "continuous_confirm": "连续确认",
+    "continuous_confirm_hint": "勾选后：智能体每轮结束后若票未完结，会自动续跑；卡住或超过上限时再来问你。取消勾选则本票不再自动续跑。"
   },
   "reply": {
     "placeholder": "回复...",

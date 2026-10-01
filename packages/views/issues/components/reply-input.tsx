@@ -7,6 +7,7 @@ import { ContentEditor, type ContentEditorRef, useFileDropZone, FileDropOverlay,
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { Button } from "@multica/ui/components/ui/button";
+import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { contentReferencesAttachment, type AgentTask } from "@multica/core/types";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
@@ -34,7 +35,13 @@ interface ReplyInputProps {
   avatarId: string;
   /** Resolves true on success, false on failure — the reply box keeps its text
    *  (locked + spinning) until then, clearing only on success. */
-  onSubmit: (content: string, attachmentIds?: string[], suppressAgentIds?: string[], steerTaskIds?: string[]) => Promise<string | boolean>;
+  onSubmit: (
+    content: string,
+    attachmentIds?: string[],
+    suppressAgentIds?: string[],
+    steerTaskIds?: string[],
+    continuousConfirm?: boolean,
+  ) => Promise<string | boolean>;
   /** Called after the server accepts the reply and the composer is cleared. */
   onAccepted?: (commentId: string) => void;
   size?: "sm" | "default";
@@ -89,6 +96,7 @@ function ReplyInput({
   const [content, setContent] = useState(initialDraft ?? "");
   const setDraft = useCommentDraftStore((s) => s.setDraft);
   const [isEmpty, setIsEmpty] = useState(!initialDraft?.trim());
+  const [continuousConfirm, setContinuousConfirm] = useState(true);
   const annotations = useCommentDraftStore((s) => draftKey ? s.getAnnotations(draftKey) : EMPTY_REPLY_ANNOTATIONS);
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = !targetMissing && (annotations.length ? hasReplyIntent(content, annotations) : !isEmpty);
@@ -200,6 +208,7 @@ function ReplyInput({
         activeIds.length > 0 ? activeIds : undefined,
         suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
         steerTaskIds.length > 0 ? steerTaskIds : undefined,
+        continuousConfirm,
       ).then((commentId) => {
         acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
         return !!commentId;
@@ -308,7 +317,7 @@ function ReplyInput({
             <p className="text-muted-foreground">{placeholderText}</p>
           </div>
         )}
-        <div className="absolute bottom-0 left-0 right-24 min-w-0">
+        <div className="absolute bottom-0 left-0 right-44 min-w-0">
           <CommentTriggerChips
             recipients={recipients}
             blocked={triggerPreview.blocked}
@@ -317,7 +326,18 @@ function ReplyInput({
             onActionChange={setAction}
           />
         </div>
-        <div className="absolute bottom-0 right-0 flex items-center gap-1">
+        <div className="absolute bottom-0 right-0 flex items-center gap-1.5">
+          <label
+            className="flex items-center gap-1 pr-1 text-caption text-muted-foreground cursor-pointer select-none"
+            title={t(($) => $.comment.continuous_confirm_hint)}
+          >
+            <Checkbox
+              checked={continuousConfirm}
+              onCheckedChange={(v) => setContinuousConfirm(v === true)}
+              aria-label={t(($) => $.comment.continuous_confirm)}
+            />
+            <span className="whitespace-nowrap">{t(($) => $.comment.continuous_confirm)}</span>
+          </label>
           <FileUploadButton
             size="sm"
             multiple

@@ -14,34 +14,48 @@ import (
 )
 
 // enableContinuousConfirm stamps issue metadata and picks the agent to keep
-// waking. Prefer the first successfully queued/steered trigger; fall back to
-// assignee.
+// waking. Prefer agents that actually received work from this comment
+ // (including reply/assignee routes that never appear in mention outcomes),
+ // then mention outcomes, then a previously stored agent, then assignee.
 func (h *Handler) enableContinuousConfirm(
 	ctx context.Context,
 	issue db.Issue,
 	outcomes []CommentTriggerOutcome,
+	triggeredAgentIDs []string,
 	fallbackAgentID string,
 ) {
-	agentID := fallbackAgentID
-	for _, o := range outcomes {
-		if o.TargetType != "agent" || o.TargetID == "" {
-			continue
+	agentID := ""
+	if len(triggeredAgentIDs) > 0 {
+		agentID = triggeredAgentIDs[0]
+	}
+	if agentID == "" {
+		for _, o := range outcomes {
+			if o.TargetType != "agent" || o.TargetID == "" {
+				continue
+			}
+			switch o.Status {
+			case DispatchQueued, DispatchCoalesced, DispatchDeferred, DispatchSteered:
+				agentID = o.TargetID
+			default:
+				continue
+			}
+			break
 		}
-		switch o.Status {
-		case DispatchQueued, DispatchCoalesced, DispatchDeferred, DispatchSteered:
-			agentID = o.TargetID
-		default:
-			continue
-		}
-		break
+	}
+	if agentID == "" {
+		agentID = fallbackAgentID
 	}
 	if agentID == "" && issue.AssigneeType.Valid && issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid {
 		agentID = uuidToString(issue.AssigneeID)
 	}
 	if agentID == "" {
+		slog.Warn("continuous confirm: enabled but no agent resolved",
+			"issue_id", uuidToString(issue.ID))
 		return
 	}
 	h.setContinuousConfirmMeta(ctx, issue, true, false, 0, agentID)
+	slog.Info("continuous confirm: enabled",
+		"issue_id", uuidToString(issue.ID), "agent_id", agentID)
 }
 
 func (h *Handler) disableContinuousConfirm(ctx context.Context, issue db.Issue) {
@@ -103,6 +117,7 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 	comment db.Comment,
 	continuousConfirm *bool,
 	outcomes []CommentTriggerOutcome,
+	triggeredAgentIDs []string,
 ) {
 	fresh, err := h.Queries.GetIssue(ctx, issue.ID)
 	if err != nil {
@@ -116,9 +131,14 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 	}
 
 	if continuousConfirm != nil && *continuousConfirm {
-		h.enableContinuousConfirm(ctx, fresh, outcomes, agentID)
+		h.enableContinuousConfirm(ctx, fresh, outcomes, triggeredAgentIDs, agentID)
 		if waiting {
-			h.resumeContinuousConfirm(ctx, fresh, agentID, rounds)
+			// Prefer the agent just triggered this turn, else the stored one.
+			resumeAgent := agentID
+			if len(triggeredAgentIDs) > 0 {
+				resumeAgent = triggeredAgentIDs[0]
+			}
+			h.resumeContinuousConfirm(ctx, fresh, resumeAgent, rounds)
 		}
 		return
 	}
@@ -162,7 +182,9 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 		agentID = uuidToString(task.AgentID)
 	}
 
-	if service.ContinuousConfirmTerminalStatus(issue.Status) {
+	// Hard stop only for done/cancelled. in_review means the agent thinks it
+	// finished a deliverable — ask the human whether to keep going (SCS-297).
+	if service.ContinuousConfirmHardStopStatus(issue.Status) {
 		h.disableContinuousConfirm(ctx, issue)
 		return
 	}
@@ -182,6 +204,12 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 	if terminal == "failed" || issue.Status == "blocked" {
 		h.askContinuousConfirmUser(ctx, issue, agentID, rounds,
 			"智能体本轮失败或已 blocked，没有自动方案可继续")
+		return
+	}
+
+	if issue.Status == "in_review" {
+		h.askContinuousConfirmUser(ctx, issue, agentID, rounds,
+			"智能体本轮已交付（票状态 in_review）")
 		return
 	}
 

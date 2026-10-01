@@ -1992,14 +1992,15 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// The comment is already saved; a blocked mention must not fail the whole
 	// request. Surface the per-target outcomes so the client can show partial
 	// success instead of a silent no-op (MUL-4525 §2).
-	resp.TriggerOutcomes = h.triggerTasksForComment(r.Context(), issue, comment, parentComment, authorType, authorID, originatorUserID, suppressAgentIDs, steerTaskIDs)
+	var triggeredAgents []string
+	resp.TriggerOutcomes, triggeredAgents = h.triggerTasksForComment(r.Context(), issue, comment, parentComment, authorType, authorID, originatorUserID, suppressAgentIDs, steerTaskIDs)
 	if len(steerTaskIDs) > 0 {
 		applyCommentSupplements(&resp, h.listCommentSupplements(r.Context(), issue.WorkspaceID, []pgtype.UUID{comment.ID})[uuidToString(comment.ID)])
 	}
 
 	// SCS fork: continuous confirm loop (连续确认).
 	if authorType == "member" {
-		h.handleContinuousConfirmOnMemberComment(r.Context(), issue, comment, req.ContinuousConfirm, resp.TriggerOutcomes)
+		h.handleContinuousConfirmOnMemberComment(r.Context(), issue, comment, req.ContinuousConfirm, resp.TriggerOutcomes, triggeredAgents)
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
@@ -2042,11 +2043,15 @@ func isNoteComment(content string) bool {
 // deferred / blocked from enqueue. UI-suppressed triggers (the user unchecked
 // them) are removed before enqueue and produce no outcome.
 //
+// triggeredAgentIDs lists every agent that actually received work from this
+// comment — including reply-to-agent / assignee fallback routes that never
+// appear in mention outcomes (SCS fork continuous confirm needs this).
+//
 // steerTaskIDs are the running turns the author chose: a recipient whose chosen
 // turn is still running receives this comment there instead of a follow-up run.
-func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, actorType, actorID, originatorUserID string, suppressAgentIDs, steerTaskIDs []pgtype.UUID) []CommentTriggerOutcome {
+func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, actorType, actorID, originatorUserID string, suppressAgentIDs, steerTaskIDs []pgtype.UUID) ([]CommentTriggerOutcome, []string) {
 	if isNoteComment(comment.Content) {
-		return nil
+		return nil, nil
 	}
 	triggers, targets := h.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, actorType, actorID, commentTriggerComputeOptions{
 		ExcludeTriggerCommentID: comment.ID,
@@ -2060,7 +2065,19 @@ func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, co
 	for agentID, result := range steered {
 		enqueued[agentID] = result
 	}
-	return commentTriggerOutcomes(targets, enqueued)
+	agentIDs := make([]string, 0, len(enqueued))
+	seen := make(map[string]struct{}, len(enqueued))
+	for id, res := range enqueued {
+		switch res.status {
+		case DispatchQueued, DispatchCoalesced, DispatchDeferred, DispatchSteered:
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			agentIDs = append(agentIDs, id)
+		}
+	}
+	return commentTriggerOutcomes(targets, enqueued), agentIDs
 }
 
 // noteBlockedRuntimeTargets leaves one system comment per agent refused for an
@@ -3623,7 +3640,8 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.retriggerCancelledTaskSurvivors(r.Context(), issue, cancelled, existing.ID)
-		return h.triggerTasksForComment(r.Context(), issue, comment, parentComment, actorType, actorID, h.invokeOriginatorFromRequest(r, actorType, actorID), suppressAgentIDs, nil)
+		outcomes, _ := h.triggerTasksForComment(r.Context(), issue, comment, parentComment, actorType, actorID, h.invokeOriginatorFromRequest(r, actorType, actorID), suppressAgentIDs, nil)
+		return outcomes
 	}
 
 	// Fetch reactions and attachments for the updated comment.

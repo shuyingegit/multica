@@ -456,7 +456,7 @@ func (h *Handler) CreatePublicIssueShareComment(w http.ResponseWriter, r *http.R
 		"via_public_share":    true,
 	})
 
-	_ = h.triggerTasksForComment(r.Context(), issue, comment, parentComment, "member", authorID, authorID, nil, nil)
+	_, _ = h.triggerTasksForComment(r.Context(), issue, comment, parentComment, "member", authorID, authorID, nil, nil)
 
 	guestNick, guestLoc, _ := parseGuestMeta(comment.Content)
 	writeJSON(w, http.StatusCreated, map[string]any{

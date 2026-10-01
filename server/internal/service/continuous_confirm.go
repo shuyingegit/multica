@@ -94,6 +94,20 @@ func ContinuousConfirmUserIntent(content string) string {
 	}
 }
 
+// ContinuousConfirmHardStopStatus is statuses where auto-continue ends with no
+// ask-user prompt. in_review is intentionally NOT here — the agent may have
+// delivered a partial result; continuous confirm asks the human instead.
+func ContinuousConfirmHardStopStatus(status string) bool {
+	switch status {
+	case "done", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+// ContinuousConfirmTerminalStatus is kept for callers/tests that want the
+// broader "agent considers this finished" set (includes in_review).
 func ContinuousConfirmTerminalStatus(status string) bool {
 	switch status {
 	case "done", "in_review", "cancelled":

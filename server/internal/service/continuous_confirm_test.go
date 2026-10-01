@@ -21,6 +21,12 @@ func TestContinuousConfirmTerminalStatus(t *testing.T) {
 	if !ContinuousConfirmTerminalStatus("in_review") || ContinuousConfirmTerminalStatus("in_progress") {
 		t.Fatal("terminal status mapping wrong")
 	}
+	if ContinuousConfirmHardStopStatus("in_review") {
+		t.Fatal("in_review must not hard-stop continuous confirm")
+	}
+	if !ContinuousConfirmHardStopStatus("done") || !ContinuousConfirmHardStopStatus("cancelled") {
+		t.Fatal("done/cancelled must hard-stop")
+	}
 }
 
 func TestParseContinuousConfirmMeta(t *testing.T) {

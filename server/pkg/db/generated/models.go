@@ -544,6 +544,20 @@ type ChatSession struct {
 	ExplicitlyCreatedAt pgtype.Timestamptz `json:"explicitly_created_at"`
 }
 
+type ChatSessionPublicShare struct {
+	ID           pgtype.UUID        `json:"id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	SessionID    pgtype.UUID        `json:"session_id"`
+	Code         string             `json:"code"`
+	AuthMode     string             `json:"auth_mode"`
+	PasswordHash pgtype.Text        `json:"password_hash"`
+	CutoffAt     pgtype.Timestamptz `json:"cutoff_at"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	IsActive     bool               `json:"is_active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	RevokedAt    pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type ClientUsageDaily struct {
 	UserID          pgtype.UUID        `json:"user_id"`
 	ClientType      string             `json:"client_type"`
@@ -879,6 +893,20 @@ type IssueProperty struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Icon        string             `json:"icon"`
+}
+
+type IssuePublicShare struct {
+	ID           pgtype.UUID        `json:"id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	IssueID      pgtype.UUID        `json:"issue_id"`
+	Code         string             `json:"code"`
+	AuthMode     string             `json:"auth_mode"`
+	PasswordHash pgtype.Text        `json:"password_hash"`
+	CutoffAt     pgtype.Timestamptz `json:"cutoff_at"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	IsActive     bool               `json:"is_active"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	RevokedAt    pgtype.Timestamptz `json:"revoked_at"`
 }
 
 type IssuePullRequest struct {

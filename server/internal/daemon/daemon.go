@@ -9049,6 +9049,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 				// is still retired rather than silently kept.
 				retiredSessionID = task.PriorSessionID
 			}
+			// SCS-298: Claude mid-prompt crash on resume. Stays
+			// agent_error.process_failure for observability, but the prior
+			// session must still be named so lookups that predate the SQL
+			// time cutoff (or miss it) cannot fall back to it.
+			if retiredSessionID == "" && task.PriorSessionID != "" && taskfailure.ClaudeResumePipeClosed(errMsg) {
+				retiredSessionID = task.PriorSessionID
+			}
 		}
 		if failureReason != "" {
 			taskLog.Warn("agent failed with a resume-unsafe error, retiring the session",
@@ -9154,6 +9161,14 @@ func shouldRetryWithFreshSession(result agent.Result, priorSessionID string, too
 	// gets its session retired, just by classifyPoisonedError at report time
 	// rather than by an in-turn retry.
 	if taskfailure.UnresumableHistory(result.Error) {
+		return true
+	}
+	// Claude Code can die mid-stdin-write on a saturated resume (SCS-298:
+	// "write |1: file already closed") without emitting a rejection phrase.
+	// The claude backend also sets ResumeRejected for this shape; this branch
+	// is the belt for older binaries / other stream-json wrappers that surface
+	// the same error text without the flag.
+	if taskfailure.ClaudeResumePipeClosed(result.Error) {
 		return true
 	}
 	// Third form of positive evidence, and the same shape of argument: the

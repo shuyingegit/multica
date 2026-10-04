@@ -68,6 +68,39 @@ func AuthMethodUnresolved(errText string) bool {
 	return strings.Contains(strings.ToLower(errText), authMethodUnresolvedPhrase)
 }
 
+// ClaudeResumePipeClosed reports whether an agent error is Claude Code dying
+// while Multica was still writing the prompt/control frame to stdin — the
+// classic "write |1: file already closed" / "pipe has been ended" symptom.
+//
+// Observed on long-lived issue sessions (SCS-298): after the transcript grows
+// large, every resume crashes the CLI before it emits a session id. The
+// failure classifies as agent_error.process_failure (resume-safe by the
+// reason alone), so without this text guard GetLastTaskSession keeps handing
+// the same saturated session back and the issue is permanently bricked.
+//
+// A fresh session cures it: the daemon sets ResumeRejected on this shape when
+// a resume was requested, and the resume queries exclude older sessions by
+// time whenever a NULL-session row of this shape appears (same wormhole
+// MUL-5722 closed for Codex overflow).
+func ClaudeResumePipeClosed(errText string) bool {
+	if errText == "" {
+		return false
+	}
+	lower := strings.ToLower(errText)
+	pipeClosed := strings.Contains(lower, "file already closed") ||
+		strings.Contains(lower, "pipe has been ended") ||
+		strings.Contains(lower, "broken pipe")
+	if !pipeClosed {
+		return false
+	}
+	// Require the Claude protocol / stdin-write wrapper so an unrelated
+	// process_failure mentioning a closed file is not treated as resume-unsafe.
+	return strings.Contains(lower, "claude input/control protocol") ||
+		strings.Contains(lower, "write claude input") ||
+		strings.Contains(lower, "write |1") ||
+		strings.Contains(lower, "write |0")
+}
+
 // authMethodUnresolvedPhrase is the lowercase provider phrase
 // AuthMethodUnresolved matches. It appears verbatim in the runtime's error
 // however the failure reached us — session/resume, session/set_model or

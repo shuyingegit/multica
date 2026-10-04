@@ -234,3 +234,46 @@ func TestAuthMethodUnresolvedMatchesResumeQueryGuard(t *testing.T) {
 		t.Fatalf("predicate does not match the SQL guard phrase %q — pkg/db/queries and pkg/taskfailure have drifted", sqlGuardPhrase)
 	}
 }
+
+func TestClaudeResumePipeClosed(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  string
+		want bool
+	}{
+		{
+			name: "SCS-298 field symptom",
+			err:  "claude input/control protocol failed: write |1: file already closed",
+			want: true,
+		},
+		{
+			name: "windows pipe wording",
+			err:  "claude input/control protocol failed: write |1: The pipe has been ended.",
+			want: true,
+		},
+		{
+			name: "finalizeStreamResult write path",
+			err:  "write claude input: broken pipe",
+			want: true,
+		},
+		{
+			name: "unrelated closed file is not a resume poison",
+			err:  "open config.json: file already closed",
+			want: false,
+		},
+		{
+			name: "empty",
+			err:  "",
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ClaudeResumePipeClosed(tc.err); got != tc.want {
+				t.Fatalf("ClaudeResumePipeClosed(%q) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}

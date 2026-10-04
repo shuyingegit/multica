@@ -425,6 +425,22 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		// The account-binding 400 arrives in the result event (finalError);
 		// "no conversation found" is printed to stderr. Check both.
 		resumeRejected := resumeWasRejected(opts.ResumeSessionID, sessionID, finalStatus == "failed", finalError, stderrTail)
+		// Long-lived Claude sessions can crash the CLI while Multica is still
+		// writing the prompt (SCS-298: "write |1: file already closed"). That
+		// leaves no session id and no rejection phrase, so without this the
+		// daemon keeps resuming the same saturated transcript forever.
+		if !resumeRejected &&
+			opts.ResumeSessionID != "" &&
+			finalStatus == "failed" &&
+			sessionID == "" &&
+			toolUseCount == 0 &&
+			(taskfailure.ClaudeResumePipeClosed(finalError) || taskfailure.ClaudeResumePipeClosed(fmt.Sprintf("%v", writeErr))) {
+			resumeRejected = true
+			b.cfg.Logger.Info("claude resume crashed before a session was established; signalling fresh-session retry",
+				"requested_resume", opts.ResumeSessionID,
+				"error", finalError,
+			)
+		}
 		reportedSessionID := resolveSessionID(opts.ResumeSessionID, sessionID, finalStatus == "failed", finalError, stderrTail)
 		if resumeRejected {
 			// A rejected resume may emit usage for a newly-created session. Its

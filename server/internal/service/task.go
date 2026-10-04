@@ -5369,7 +5369,13 @@ func ResumeUnsafeFailure(failureReason, errorText string) bool {
 	// a daemon too old to carry classifyPoisonedError's new branch reports
 	// agent_error.unknown, and without this the manual-retry path would
 	// happily resume the transcript the provider just refused (GH #6066).
-	return taskfailure.UnresumableHistory(errorText)
+	if taskfailure.UnresumableHistory(errorText) {
+		return true
+	}
+	// SCS-298: Claude dying while the prompt is still being written leaves
+	// agent_error.process_failure (resume-safe by reason). The text guard is
+	// what keeps a manual rerun / claim from replaying the saturated session.
+	return taskfailure.ClaudeResumePipeClosed(errorText)
 }
 
 // retryEligible reports whether a failed task qualifies for an automatic retry

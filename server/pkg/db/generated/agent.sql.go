@@ -4376,6 +4376,21 @@ WITH retired_sessions AS (
       AND (
         COALESCE(t.failure_reason, '') = 'codex_resume_oversized'
         OR (COALESCE(t.error, '') ILIKE '%thread/resume failed%' AND COALESCE(t.error, '') ILIKE '%token too long%')
+        -- SCS-298 / Claude saturated resume: CLI dies mid-stdin-write and the
+        -- failed row carries no session_id, so only a time cutoff can stop the
+        -- lookup from falling back to the older completed row of the same
+        -- saturated transcript. Keep in sync with
+        -- taskfailure.ClaudeResumePipeClosed and GetLastChatTaskSession.
+        OR (
+          (COALESCE(t.error, '') ILIKE '%file already closed%'
+            OR COALESCE(t.error, '') ILIKE '%pipe has been ended%'
+            OR COALESCE(t.error, '') ILIKE '%broken pipe%')
+          AND (
+            COALESCE(t.error, '') ILIKE '%claude input/control protocol%'
+            OR COALESCE(t.error, '') ILIKE '%write claude input%'
+            OR COALESCE(t.error, '') ILIKE '%write |1%'
+          )
+        )
       )
 ), latest_per_session AS (
     SELECT DISTINCT ON (t.session_id)

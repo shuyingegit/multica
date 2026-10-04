@@ -1,6 +1,15 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Virtuoso, type Components, type VirtuosoHandle } from "react-virtuoso";
@@ -94,6 +103,11 @@ interface ChatMessageListProps {
   quickActionsPendingMessageId?: string | null;
 }
 
+export type ChatMessageListHandle = {
+  scrollToTop: () => void;
+  scrollToBottom: () => void;
+};
+
 // ─── Virtuoso chrome ─────────────────────────────────────────────────────
 //
 // Header/Footer MUST be stable component references (module scope), never
@@ -175,20 +189,24 @@ const LIST_COMPONENTS: Components<ChatRenderItem, ChatListContext> = {
   Footer: ChatListFooter,
 };
 
-export function ChatMessageList({
-  messages,
-  pendingTask,
-  availability,
-  firstItemIndex = 0,
-  hasOlderMessages = false,
-  isFetchingOlderMessages = false,
-  onLoadOlderMessages,
-  transformContent,
-  onQuickAction,
-  quickActionsDisabled = false,
-  onRegenerateQuickActions,
-  quickActionsPendingMessageId = null,
-}: ChatMessageListProps) {
+export const ChatMessageList = forwardRef<ChatMessageListHandle, ChatMessageListProps>(
+  function ChatMessageList(
+    {
+      messages,
+      pendingTask,
+      availability,
+      firstItemIndex = 0,
+      hasOlderMessages = false,
+      isFetchingOlderMessages = false,
+      onLoadOlderMessages,
+      transformContent,
+      onQuickAction,
+      quickActionsDisabled = false,
+      onRegenerateQuickActions,
+      quickActionsPendingMessageId = null,
+    },
+    ref,
+  ) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
@@ -205,6 +223,20 @@ export function ChatMessageList({
   const { isFollowing, onContentHeightChanged, hasReachedLiveEnd } = useStickToBottom(
     scrollContainerEl,
     pinToLiveEnd,
+  );
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop: () => {
+        // Virtuoso's index type is `number | "LAST"` only — the absolute first
+        // row is `firstItemIndex` when older pages have been prepended.
+        virtuosoRef.current?.scrollToIndex({ index: firstItemIndex, align: "start" });
+      },
+      scrollToBottom: () => {
+        pinToLiveEnd();
+      },
+    }),
+    [firstItemIndex, pinToLiveEnd],
   );
   // Soft edge fade hinting more content above/below. Kept small so it barely
   // grazes full-bleed previews (image / HTML) at the edges.
@@ -396,7 +428,8 @@ export function ChatMessageList({
     </div>
     </PreviewSequenceProvider>
   );
-}
+},
+);
 
 /**
  * Placeholder shown while `chat_message` for a session is being fetched

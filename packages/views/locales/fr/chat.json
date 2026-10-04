@@ -141,7 +141,9 @@
     "history_group": "Historique des discussions",
     "agent_filter_placeholder": "Rechercher des agents...",
     "agent_needs_runtime": "Runtime requis",
-    "agent_needs_runtime_hint": "Associez un runtime avant de démarrer une discussion avec cet agent"
+    "agent_needs_runtime_hint": "Associez un runtime avant de démarrer une discussion avec cet agent",
+    "scroll_top_tooltip": "Aller en haut",
+    "scroll_bottom_tooltip": "Aller en bas"
   },
   "empty_state": {
     "first_time_title": "Discutez avec vos agents",

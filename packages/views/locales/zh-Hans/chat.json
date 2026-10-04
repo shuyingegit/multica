@@ -137,7 +137,9 @@
     "history_group": "历史对话",
     "agent_filter_placeholder": "搜索智能体...",
     "agent_needs_runtime": "需绑定运行时",
-    "agent_needs_runtime_hint": "请先绑定运行时，再与该智能体开始对话"
+    "agent_needs_runtime_hint": "请先绑定运行时，再与该智能体开始对话",
+    "scroll_top_tooltip": "置顶",
+    "scroll_bottom_tooltip": "置底"
   },
   "empty_state": {
     "first_time_title": "和你的智能体对话",

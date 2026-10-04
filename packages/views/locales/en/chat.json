@@ -141,7 +141,9 @@
     "history_group": "Chat history",
     "agent_filter_placeholder": "Search agents...",
     "agent_needs_runtime": "Needs runtime",
-    "agent_needs_runtime_hint": "Bind a runtime before starting a chat with this agent"
+    "agent_needs_runtime_hint": "Bind a runtime before starting a chat with this agent",
+    "scroll_top_tooltip": "Jump to top",
+    "scroll_bottom_tooltip": "Jump to bottom"
   },
   "empty_state": {
     "first_time_title": "Chat with your agents",

@@ -70,7 +70,8 @@ import { removeChatMessageFromCaches } from "@multica/core/realtime";
 import { useChatDraftRestore } from "./use-chat-draft-restore";
 import { useChatTaskActions } from "./use-chat-task-actions";
 import { useChatInputFocus } from "./use-chat-input-focus";
-import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
+import { ChatMessageList, ChatMessageSkeleton, type ChatMessageListHandle } from "./chat-message-list";
+import { ScrollEdgeButtons } from "../../common/scroll-edge-buttons";
 import { ChatInput } from "./chat-input";
 import { ChatQueue } from "./chat-queue";
 import { EmptyState } from "./chat-empty-state";
@@ -189,6 +190,7 @@ export function ChatWindow() {
   // Nonce handed to ChatInput to pull focus into the compose box: when a new
   // chat starts (⊕ or switching agent), and whenever the window itself opens.
   const windowRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<ChatMessageListHandle>(null);
   const { focusRequest, requestInputFocus } = useChatInputFocus(isOpen, windowRef);
   const [conversationStarterRequest, setConversationStarterRequest] = useState<{
     id: number;
@@ -881,6 +883,14 @@ export function ChatWindow() {
           />
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
+          {hasMessages && (
+            <ScrollEdgeButtons
+              onScrollToTop={() => messageListRef.current?.scrollToTop()}
+              onScrollToBottom={() => messageListRef.current?.scrollToBottom()}
+              topLabel={t(($) => $.window.scroll_top_tooltip)}
+              bottomLabel={t(($) => $.window.scroll_bottom_tooltip)}
+            />
+          )}
           {!isMobile && (
             <Tooltip>
               <TooltipTrigger
@@ -924,6 +934,7 @@ export function ChatWindow() {
       ) : hasMessages ? (
         <ChatMessageList
           key={activeSessionId}
+          ref={messageListRef}
           messages={messages}
           pendingTask={pendingTask}
           availability={availability}

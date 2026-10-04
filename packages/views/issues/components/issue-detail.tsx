@@ -106,6 +106,7 @@ import { useCommentAnnotations } from "./use-comment-annotations";
 import { CurrentIssueRenderContextProvider } from "../current-issue-render-context";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { ThreadMinimap, type ThreadMinimapThread } from "./thread-minimap";
+import { ScrollEdgeButtons } from "../../common/scroll-edge-buttons";
 import { collectThreadParticipants, collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
 import { IssueWakeupHeaderChip } from "./issue-wakeup-header-chip";
@@ -2045,6 +2046,28 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     rafId = requestAnimationFrame(align);
     return () => cancelAnimationFrame(rafId);
   }, [pendingReplyJump, scrollContainerEl, flashJumpTarget]);
+  const scrollIssueToTop = useCallback(() => {
+    scrollContainerEl?.scrollTo({ top: 0, behavior: "smooth" });
+    if (!isFlatTimeline) {
+      virtuosoRef.current?.scrollToIndex({ index: 0, align: "start" });
+    }
+  }, [scrollContainerEl, isFlatTimeline]);
+
+  const scrollIssueToBottom = useCallback(() => {
+    const container = scrollContainerEl;
+    if (!container) return;
+    if (isFlatTimeline || items.length === 0) {
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      return;
+    }
+    const composerHeight = composerRef.current?.getBoundingClientRect().height ?? 0;
+    virtuosoRef.current?.scrollToIndex({
+      index: items.length - 1,
+      align: "end",
+      offset: composerHeight,
+    });
+  }, [scrollContainerEl, isFlatTimeline, items.length]);
+
   const jumpToMinimapTarget = useCallback(
     (commentId: string) =>
       replyToRoot.has(commentId) ? jumpToReply(commentId) : jumpToThread(commentId),
@@ -3958,6 +3981,18 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             scrollContainerEl={scrollContainerEl}
             onJump={jumpToMinimapTarget}
             className="absolute bottom-0 right-3 top-12"
+          />
+        )}
+        {/* Jump-to-edge controls for long tickets — sit above the chat FAB so
+            readers can land on the latest comment without long manual scrolls. */}
+        {!isPeek && (
+          <ScrollEdgeButtons
+            variant="stack"
+            onScrollToTop={scrollIssueToTop}
+            onScrollToBottom={scrollIssueToBottom}
+            topLabel={t(($) => $.detail.scroll_top_tooltip)}
+            bottomLabel={t(($) => $.detail.scroll_bottom_tooltip)}
+            className="absolute z-20 above-chat-launcher right-[calc(var(--chat-launcher-inset)+var(--chat-launcher-size)+0.5rem)]"
           />
         )}
       </div>

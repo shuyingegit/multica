@@ -137,7 +137,9 @@
     "history_group": "チャット履歴",
     "agent_filter_placeholder": "エージェントを検索...",
     "agent_needs_runtime": "ランタイム未設定",
-    "agent_needs_runtime_hint": "このエージェントとチャットする前にランタイムを設定してください"
+    "agent_needs_runtime_hint": "このエージェントとチャットする前にランタイムを設定してください",
+    "scroll_top_tooltip": "先頭へ",
+    "scroll_bottom_tooltip": "末尾へ"
   },
   "empty_state": {
     "first_time_title": "エージェントとチャット",

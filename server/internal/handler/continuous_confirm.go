@@ -15,15 +15,15 @@ import (
 
 // enableContinuousConfirm stamps issue metadata and picks the agent to keep
 // waking. Prefer agents that actually received work from this comment
- // (including reply/assignee routes that never appear in mention outcomes),
- // then mention outcomes, then a previously stored agent, then assignee.
+// (including reply/assignee routes that never appear in mention outcomes),
+// then mention outcomes, then a previously stored agent, then assignee.
 func (h *Handler) enableContinuousConfirm(
 	ctx context.Context,
 	issue db.Issue,
 	outcomes []CommentTriggerOutcome,
 	triggeredAgentIDs []string,
 	fallbackAgentID string,
-) {
+) string {
 	agentID := ""
 	if len(triggeredAgentIDs) > 0 {
 		agentID = triggeredAgentIDs[0]
@@ -51,11 +51,14 @@ func (h *Handler) enableContinuousConfirm(
 	if agentID == "" {
 		slog.Warn("continuous confirm: enabled but no agent resolved",
 			"issue_id", uuidToString(issue.ID))
-		return
+		return ""
 	}
+	// Fresh human kickoff: reset round budget so long tickets (SCS-298) get a
+	// new window of auto-continues after the user re-engages.
 	h.setContinuousConfirmMeta(ctx, issue, true, false, 0, agentID)
 	slog.Info("continuous confirm: enabled",
 		"issue_id", uuidToString(issue.ID), "agent_id", agentID)
+	return agentID
 }
 
 func (h *Handler) disableContinuousConfirm(ctx context.Context, issue db.Issue) {
@@ -110,6 +113,20 @@ func (h *Handler) clearContinuousConfirmMeta(ctx context.Context, issue db.Issue
 	}
 }
 
+func (h *Handler) issueHasActiveAgentTask(ctx context.Context, issueID pgtype.UUID, ignoreTaskID pgtype.UUID) bool {
+	active, err := h.Queries.ListActiveTasksByIssue(ctx, issueID)
+	if err != nil {
+		return true // fail closed: don't double-enqueue on list errors
+	}
+	for _, a := range active {
+		if ignoreTaskID.Valid && a.ID == ignoreTaskID {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // handleContinuousConfirmOnMemberComment runs after a member comment is saved.
 func (h *Handler) handleContinuousConfirmOnMemberComment(
 	ctx context.Context,
@@ -131,28 +148,50 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 	}
 
 	if continuousConfirm != nil && *continuousConfirm {
-		h.enableContinuousConfirm(ctx, fresh, outcomes, triggeredAgentIDs, agentID)
-		if waiting {
-			// Prefer the agent just triggered this turn, else the stored one.
-			resumeAgent := agentID
-			if len(triggeredAgentIDs) > 0 {
-				resumeAgent = triggeredAgentIDs[0]
+		wasWaiting := waiting
+		agentID = h.enableContinuousConfirm(ctx, fresh, outcomes, triggeredAgentIDs, agentID)
+		if agentID == "" {
+			return
+		}
+		// If we were waiting on the user, or this comment didn't start any
+		// agent run, kick a follow-up so "勾着连续确认发一句话" always continues.
+		triggered := len(triggeredAgentIDs) > 0
+		for _, o := range outcomes {
+			switch o.Status {
+			case DispatchQueued, DispatchCoalesced, DispatchDeferred, DispatchSteered:
+				triggered = true
 			}
-			h.resumeContinuousConfirm(ctx, fresh, resumeAgent, rounds)
+		}
+		if wasWaiting || !triggered {
+			if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
+				h.resumeContinuousConfirm(ctx, fresh, agentID, 0)
+			}
 		}
 		return
 	}
 
-	if !enabled || !waiting {
+	if !enabled {
 		return
 	}
 
 	switch service.ContinuousConfirmUserIntent(comment.Content) {
 	case "continue":
-		h.resumeContinuousConfirm(ctx, fresh, agentID, rounds)
+		if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
+			h.resumeContinuousConfirm(ctx, fresh, agentID, rounds)
+		} else {
+			// Clear waiting so the active/next completion path keeps auto-running.
+			h.setContinuousConfirmMeta(ctx, fresh, true, false, rounds, agentID)
+		}
 	case "stop":
 		h.disableContinuousConfirm(ctx, fresh)
 		h.postContinuousConfirmSystemComment(ctx, fresh, "【连续确认】已按你的指示结束自动续跑。")
+	default:
+		// While waiting, any other member comment that still has the flag on
+		// (checkbox omitted from older clients) should not leave the loop stuck:
+		// if waiting, treat as soft continue when no agent is active.
+		if waiting && !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
+			h.resumeContinuousConfirm(ctx, fresh, agentID, rounds)
+		}
 	}
 }
 
@@ -182,22 +221,13 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 		agentID = uuidToString(task.AgentID)
 	}
 
-	// Hard stop only for done/cancelled. in_review means the agent thinks it
-	// finished a deliverable — ask the human whether to keep going (SCS-297).
+	// Only thoroughly finished / cancelled tickets stop the loop.
 	if service.ContinuousConfirmHardStopStatus(issue.Status) {
 		h.disableContinuousConfirm(ctx, issue)
 		return
 	}
 
-	active, err := h.Queries.ListActiveTasksByIssue(ctx, issue.ID)
-	if err != nil {
-		slog.Warn("continuous confirm: list active tasks failed", "issue_id", uuidToString(issue.ID), "error", err)
-		return
-	}
-	for _, a := range active {
-		if a.ID == task.ID {
-			continue
-		}
+	if h.issueHasActiveAgentTask(ctx, issue.ID, task.ID) {
 		return
 	}
 
@@ -207,16 +237,11 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 		return
 	}
 
-	if issue.Status == "in_review" {
-		h.askContinuousConfirmUser(ctx, issue, agentID, rounds,
-			"智能体本轮已交付（票状态 in_review）")
-		return
-	}
-
+	// in_review / in_progress / todo / … — keep going until done (SCS-298).
 	next := rounds + 1
 	if next > service.ContinuousConfirmMaxRounds {
 		h.askContinuousConfirmUser(ctx, issue, agentID, rounds,
-			fmt.Sprintf("已自动续跑 %d 轮仍未完结", service.ContinuousConfirmMaxRounds))
+			fmt.Sprintf("已自动续跑 %d 轮仍未彻底完成", service.ContinuousConfirmMaxRounds))
 		return
 	}
 

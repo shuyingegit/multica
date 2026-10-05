@@ -637,7 +637,20 @@
     "restart_send": "중지하고 보내기",
     "restart_failed": "현재 실행을 중지하지 못했습니다. 메시지는 보내지 않았습니다.",
     "continuous_confirm": "연속 확인",
-    "continuous_confirm_hint": "선택 시 이슈가 끝나지 않으면 매 턴 후 자동으로 이어갑니다. 막히거나 한도에 도달하면 묻습니다. 해제하면 이 이슈의 자동 연속을 멈춥니다."
+    "continuous_confirm_hint": "켜면 외곽 루프 계획으로 자동 이어갑니다. 톱니로 횟수·문구·종료 마커를 설정하세요.",
+    "continuous_confirm_settings": "연속 확인 설정",
+    "continuous_confirm_plan_help": "현재 턴이 끝나면 설정 횟수까지 자동 계속합니다. 종료 마커, done/cancelled, 또는 중지로 끝납니다.",
+    "continuous_confirm_max": "연속 횟수",
+    "continuous_confirm_done_marker": "종료 마커",
+    "continuous_confirm_prompt": "라운드별 문구",
+    "continuous_confirm_placeholders": "자리 표시자: {n} 현재, {max} 전체, {done} 종료 마커.",
+    "continuous_confirm_reset": "기본값",
+    "continuous_confirm_apply": "저장",
+    "continuous_confirm_progress": "계획 {{current}}/{{max}}",
+    "continuous_confirm_running": "진행 중",
+    "continuous_confirm_waiting": "확인 대기",
+    "continuous_confirm_done_hint": "종료 마커: {{marker}}",
+    "continuous_confirm_stop": "중지"
   },
   "reply": {
     "placeholder": "답글 남기기...",

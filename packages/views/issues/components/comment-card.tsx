@@ -137,7 +137,12 @@ interface CommentCardProps {
     attachmentIds?: string[],
     suppressAgentIds?: string[],
     steerTaskIds?: string[],
-    continuousConfirm?: boolean,
+    continuousConfirm?: boolean | {
+      enabled: boolean;
+      max?: number;
+      prompt?: string;
+      done_marker?: string;
+    },
   ) => Promise<string | boolean>;
   onReplyAccepted?: (commentId: string) => void;
   onEdit: (commentId: string, content: string, attachmentIds: string[], suppressAgentIds?: string[], contentBase?: string) => Promise<void>;

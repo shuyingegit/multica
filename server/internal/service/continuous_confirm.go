@@ -3,53 +3,123 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
-// SCS fork: continuous confirm ("连续确认") keeps an issue's agent working
-// across turns until the work is marked finished, the agent is truly stuck,
-// or the round cap is hit and we ask the human.
+// SCS fork: continuous confirm ("连续确认") is an explicit outer-loop plan:
+// user-set max rounds, editable prompt template, DONE marker exit, and
+// visible progress — not a black-box checkbox that silently re-wakes.
 
 const (
-	ContinuousConfirmMetaKey        = "continuous_confirm"
-	ContinuousConfirmRoundsMetaKey  = "continuous_confirm_rounds"
-	ContinuousConfirmAgentMetaKey   = "continuous_confirm_agent"
-	ContinuousConfirmWaitingMetaKey = "continuous_confirm_waiting"
+	ContinuousConfirmMetaKey           = "continuous_confirm"
+	ContinuousConfirmRoundsMetaKey     = "continuous_confirm_rounds"
+	ContinuousConfirmAgentMetaKey      = "continuous_confirm_agent"
+	ContinuousConfirmWaitingMetaKey    = "continuous_confirm_waiting"
+	ContinuousConfirmMaxMetaKey        = "continuous_confirm_max"
+	ContinuousConfirmPromptMetaKey     = "continuous_confirm_prompt"
+	ContinuousConfirmDoneMarkerMetaKey = "continuous_confirm_done_marker"
 
-	// Cap auto-continues so a runaway loop cannot burn the runtime forever.
-	// Long-running tickets (e.g. 持续推广) need far more than a handful of turns;
-	// only done/cancelled/user-stop end the loop for good.
-	ContinuousConfirmMaxRounds = 50
+	// Absolute hard ceiling (safety). User-facing max is clamped to this.
+	ContinuousConfirmAbsoluteMax = 100
+	// Default when the user enables the plan without choosing a count.
+	ContinuousConfirmDefaultMax = 20
+	// Legacy tickets that only have the bool flag (no max key) keep the old budget.
+	ContinuousConfirmLegacyMax = 50
+
+	// Deprecated alias — prefer ContinuousConfirmAbsoluteMax / plan.EffectiveMax().
+	ContinuousConfirmMaxRounds = ContinuousConfirmAbsoluteMax
+
+	ContinuousConfirmDefaultDoneMarker = "【连续确认:DONE】"
 
 	continuousConfirmAskMarker = "【连续确认】"
 )
 
-// ContinuousConfirmHandoffNote is merged into the daemon handoff_note so every
-// claim under the flag gets the same "keep going" brief without a daemon bump.
-func ContinuousConfirmHandoffNote(round, max int) string {
-	if round <= 0 {
-		return strings.TrimSpace(`
-[连续确认 / continuous confirm]
-用户开启了「连续确认」。请尽量自行决策、查资料、推进任务，不要因可自行解决的选择停下来等用户。
-结束信号（只有这些才会停自动续跑）：
-(a) 任务已彻底完成 → 把票设为 done，并在终评里说明结果；
-(b) 已卡住、没有用户介入就无法继续 → 把票设为 blocked，并在终评里写清缺什么。
-中间进度请保持 in_progress（或临时 in_review）；系统会在票未 done 时继续安排你推进。
-不要只抛出开放式问题后空等。
-`)
+// ContinuousConfirmDefaultPrompt is rendered with {n}/{max}/{done} before each
+// auto-continue round (and injected into the claim handoff).
+const ContinuousConfirmDefaultPrompt = `【连续确认 第 {n}/{max} 轮】请继续推进同一任务，自行决策。若本轮后任务已彻底完成，请在终评明确写出：{done}。若必须等人才能继续，设为 blocked 并写清缺什么。不要只提问后空等。`
+
+// ContinuousConfirmPlan is the persisted outer-loop state on issue.metadata.
+type ContinuousConfirmPlan struct {
+	Enabled    bool
+	Waiting    bool
+	Rounds     int
+	AgentID    string
+	Max        int    // 0 = key unset (legacy)
+	MaxSet     bool   // true when continuous_confirm_max is present
+	Prompt     string // empty → default template
+	DoneMarker string // empty → default marker
+}
+
+func (p ContinuousConfirmPlan) EffectiveMax() int {
+	max := p.Max
+	if !p.MaxSet || max <= 0 {
+		if p.MaxSet {
+			max = ContinuousConfirmDefaultMax
+		} else {
+			max = ContinuousConfirmLegacyMax
+		}
 	}
-	return strings.TrimSpace(fmt.Sprintf(`
-[连续确认 / continuous confirm — 自动续跑第 %d/%d 轮]
-上一轮尚未彻底完结。请继续处理同一任务，自行推进，直到彻底完成或确认真正卡住。
-彻底完成 → done + 终评；卡住 → blocked + 说明缺什么。不要停在「请指示下一步」。
-`, round, max))
+	if max > ContinuousConfirmAbsoluteMax {
+		return ContinuousConfirmAbsoluteMax
+	}
+	if max < 1 {
+		return 1
+	}
+	return max
+}
+
+func (p ContinuousConfirmPlan) EffectivePrompt() string {
+	if strings.TrimSpace(p.Prompt) == "" {
+		return ContinuousConfirmDefaultPrompt
+	}
+	return p.Prompt
+}
+
+func (p ContinuousConfirmPlan) EffectiveDoneMarker() string {
+	if strings.TrimSpace(p.DoneMarker) == "" {
+		return ContinuousConfirmDefaultDoneMarker
+	}
+	return p.DoneMarker
+}
+
+// ContinuousConfirmRenderPrompt substitutes {n}/{max}/{done} in the template.
+func ContinuousConfirmRenderPrompt(template string, round, max int, doneMarker string) string {
+	if strings.TrimSpace(template) == "" {
+		template = ContinuousConfirmDefaultPrompt
+	}
+	if strings.TrimSpace(doneMarker) == "" {
+		doneMarker = ContinuousConfirmDefaultDoneMarker
+	}
+	if round < 1 {
+		round = 1
+	}
+	r := strings.NewReplacer(
+		"{n}", strconv.Itoa(round),
+		"{max}", strconv.Itoa(max),
+		"{done}", doneMarker,
+	)
+	return strings.TrimSpace(r.Replace(template))
+}
+
+// ContinuousConfirmHandoffNote is merged into the daemon handoff_note.
+func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
+	max := plan.EffectiveMax()
+	round := plan.Rounds
+	if round < 1 {
+		round = 1
+	}
+	body := ContinuousConfirmRenderPrompt(plan.EffectivePrompt(), round, max, plan.EffectiveDoneMarker())
+	return strings.TrimSpace(fmt.Sprintf(`[连续确认 / continuous confirm — 外循环第 %d/%d 轮]
+%s
+`, round, max, body))
 }
 
 func ContinuousConfirmProgressContent(round, max int) string {
 	return fmt.Sprintf(
-		"%s自动续跑第 %d/%d 轮：上一轮智能体已结束，但票尚未彻底完成。正在继续推进，请暂不必回复。",
+		"%s续跑计划进度：第 %d/%d 轮（上一轮已结束，正在继续；可在评论栏下方停止或改计划）。",
 		continuousConfirmAskMarker, round, max,
 	)
 }
@@ -59,25 +129,79 @@ func ContinuousConfirmAskUserContent(reason string) string {
 		reason = "智能体本轮已结束，任务似乎尚未完结"
 	}
 	return fmt.Sprintf(
-		"%s%s。\n\n请回复「继续」让系统接着安排智能体处理，或回复「结束」停止自动续跑。",
+		"%s%s。\n\n请回复「继续」让系统接着安排智能体处理，或回复「结束」停止自动续跑。也可在评论栏改次数/话术后重新勾选发送。",
 		continuousConfirmAskMarker, reason,
 	)
 }
 
-func ParseContinuousConfirmMeta(raw []byte) (enabled bool, waiting bool, rounds int, agentID string) {
+func ContinuousConfirmStoppedDoneContent(marker string) string {
+	return fmt.Sprintf("%s检测到结束标记 `%s`，已停止自动续跑。", continuousConfirmAskMarker, marker)
+}
+
+func ContinuousConfirmStoppedMaxContent(max int) string {
+	return fmt.Sprintf("%s已跑满设定的 %d 轮，自动续跑结束。需要的话可改次数后重新开启。", continuousConfirmAskMarker, max)
+}
+
+func ParseContinuousConfirmMeta(raw []byte) ContinuousConfirmPlan {
 	m := util.JSONObjectOrEmpty(raw)
-	enabled, _ = m[ContinuousConfirmMetaKey].(bool)
-	waiting, _ = m[ContinuousConfirmWaitingMetaKey].(bool)
-	agentID, _ = m[ContinuousConfirmAgentMetaKey].(string)
-	switch v := m[ContinuousConfirmRoundsMetaKey].(type) {
+	p := ContinuousConfirmPlan{}
+	p.Enabled, _ = m[ContinuousConfirmMetaKey].(bool)
+	p.Waiting, _ = m[ContinuousConfirmWaitingMetaKey].(bool)
+	p.AgentID, _ = m[ContinuousConfirmAgentMetaKey].(string)
+	p.Prompt, _ = m[ContinuousConfirmPromptMetaKey].(string)
+	p.DoneMarker, _ = m[ContinuousConfirmDoneMarkerMetaKey].(string)
+	p.Rounds = jsonInt(m[ContinuousConfirmRoundsMetaKey])
+	if _, ok := m[ContinuousConfirmMaxMetaKey]; ok {
+		p.MaxSet = true
+		p.Max = jsonInt(m[ContinuousConfirmMaxMetaKey])
+	}
+	return p
+}
+
+func jsonInt(v any) int {
+	switch n := v.(type) {
 	case float64:
-		rounds = int(v)
+		return int(n)
 	case json.Number:
-		if n, err := v.Int64(); err == nil {
-			rounds = int(n)
+		i, err := n.Int64()
+		if err == nil {
+			return int(i)
+		}
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return 0
+}
+
+// ContinuousConfirmHasDoneMarker reports whether text contains the exit marker.
+func ContinuousConfirmHasDoneMarker(text, marker string) bool {
+	if strings.TrimSpace(marker) == "" {
+		marker = ContinuousConfirmDefaultDoneMarker
+	}
+	return marker != "" && strings.Contains(text, marker)
+}
+
+// ContinuousConfirmNeedsIntervention detects hard "must wait for human" phrasing.
+func ContinuousConfirmNeedsIntervention(text string) bool {
+	s := strings.ToLower(text)
+	hints := []string{
+		"无法继续",
+		"必须要等待用户介入",
+		"需要用户介入",
+		"等待用户介入",
+		"need user intervention",
+		"requires user intervention",
+		"cannot continue without",
+		"must wait for the user",
+	}
+	for _, h := range hints {
+		if strings.Contains(s, strings.ToLower(h)) {
+			return true
 		}
 	}
-	return
+	return false
 }
 
 // ContinuousConfirmUserIntent classifies a member reply while we are waiting.
@@ -89,14 +213,12 @@ func ContinuousConfirmUserIntent(content string) string {
 	if s == "" {
 		return ""
 	}
-	// Exact short replies
 	switch s {
 	case "继续", "续跑", "continue", "yes", "y", "ok", "好", "好的", "接着", "接着做", "再来":
 		return "continue"
 	case "结束", "停止", "stop", "不用了", "取消", "别续了", "停止续跑":
 		return "stop"
 	}
-	// Longer replies that clearly ask to keep going / stop (SCS-298: "任务尚未结束，请继续")
 	continueHints := []string{"继续", "续跑", "接着做", "接着干", "请继续", "继续处理", "继续推进", "keep going", "continue"}
 	stopHints := []string{"结束连续确认", "停止连续确认", "不要续跑", "别续跑", "停止续跑", "取消连续确认"}
 	for _, h := range stopHints {
@@ -109,8 +231,6 @@ func ContinuousConfirmUserIntent(content string) string {
 			return "continue"
 		}
 	}
-	// Bare "结束"/"停止" as the whole short message already handled; avoid treating
-	// long task write-ups that mention "完成" as stop.
 	return ""
 }
 
@@ -134,4 +254,15 @@ func ContinuousConfirmTerminalStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+// ClampContinuousConfirmMax normalizes a user-supplied max.
+func ClampContinuousConfirmMax(max int) int {
+	if max <= 0 {
+		return ContinuousConfirmDefaultMax
+	}
+	if max > ContinuousConfirmAbsoluteMax {
+		return ContinuousConfirmAbsoluteMax
+	}
+	return max
 }

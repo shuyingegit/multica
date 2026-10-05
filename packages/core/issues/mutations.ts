@@ -842,8 +842,13 @@ export function useCreateComment(issueId: string) {
       suppressAgentIds?: string[];
       /** Running turns this comment goes into instead of a follow-up run. */
       steerTaskIds?: string[];
-      /** SCS fork: keep waking the agent until the issue is finished. */
-      continuousConfirm?: boolean;
+      /** SCS fork: bool or outer-loop plan {enabled,max,prompt,done_marker}. */
+      continuousConfirm?: boolean | {
+        enabled: boolean;
+        max?: number;
+        prompt?: string;
+        done_marker?: string;
+      };
     }) => api.createComment(issueId, content, type, parentId, attachmentIds, suppressAgentIds, steerTaskIds, continuousConfirm),
     onSuccess: (comment) => {
       if (comment.issue_revision) {

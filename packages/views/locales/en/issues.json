@@ -656,7 +656,20 @@
     "restart_send": "Stop and send",
     "restart_failed": "Couldn't stop the current run. Your message wasn't sent.",
     "continuous_confirm": "Keep going",
-    "continuous_confirm_hint": "When checked, the agent auto-continues after each turn until the issue is finished; if stuck or the round cap is hit, you will be asked. Uncheck to stop auto-continue on this issue."
+    "continuous_confirm_hint": "When on, an outer-loop plan auto-continues after each turn. Open the gear to set rounds, prompt, and done marker.",
+    "continuous_confirm_settings": "Keep-going plan",
+    "continuous_confirm_plan_help": "After the current turn, auto-continue up to N rounds. Stops when the model writes the done marker, the issue is done/cancelled, or you stop the plan.",
+    "continuous_confirm_max": "Max rounds",
+    "continuous_confirm_done_marker": "Done marker",
+    "continuous_confirm_prompt": "Per-round prompt",
+    "continuous_confirm_placeholders": "Placeholders: {n} round, {max} total, {done} marker.",
+    "continuous_confirm_reset": "Reset defaults",
+    "continuous_confirm_apply": "Save",
+    "continuous_confirm_progress": "Plan {{current}}/{{max}}",
+    "continuous_confirm_running": "Running",
+    "continuous_confirm_waiting": "Waiting for you",
+    "continuous_confirm_done_hint": "Done marker: {{marker}}",
+    "continuous_confirm_stop": "Stop plan"
   },
   "reply": {
     "placeholder": "Leave a reply...",

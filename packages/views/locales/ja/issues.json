@@ -637,7 +637,20 @@
     "restart_send": "停止して送信",
     "restart_failed": "現在の実行を停止できませんでした。メッセージは送信されていません。",
     "continuous_confirm": "連続確認",
-    "continuous_confirm_hint": "オンにすると、未完了の場合は各ターン後に自動で続行します。行き詰まりや上限到達時に確認します。オフにするとこのチケットの自動続行を止めます。"
+    "continuous_confirm_hint": "オンにすると外ループ計画で自動継続します。歯車で回数・文言・終了マーカーを設定できます。",
+    "continuous_confirm_settings": "連続確認の設定",
+    "continuous_confirm_plan_help": "現在のターン終了後、設定回数まで自動継続します。終了マーカー、done/cancelled、または停止で終わります。",
+    "continuous_confirm_max": "連続回数",
+    "continuous_confirm_done_marker": "終了マーカー",
+    "continuous_confirm_prompt": "各ラウンドの文言",
+    "continuous_confirm_placeholders": "プレースホルダ：{n} 現在、{max} 合計、{done} 終了マーカー。",
+    "continuous_confirm_reset": "デフォルトに戻す",
+    "continuous_confirm_apply": "保存",
+    "continuous_confirm_progress": "計画 {{current}}/{{max}}",
+    "continuous_confirm_running": "実行中",
+    "continuous_confirm_waiting": "確認待ち",
+    "continuous_confirm_done_hint": "終了マーカー：{{marker}}",
+    "continuous_confirm_stop": "停止"
   },
   "reply": {
     "placeholder": "返信を残す...",

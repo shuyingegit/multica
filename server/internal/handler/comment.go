@@ -1495,11 +1495,11 @@ type CreateCommentRequest struct {
 	// has ended, or cannot take additional input, is never swapped for another
 	// one: its agent keeps the normal trigger.
 	SteerTaskIDs []string `json:"steer_task_ids"`
-	// ContinuousConfirm (SCS fork): when true, keep waking the agent after each
-	// turn until the issue is finished, blocked, or the round cap asks the user.
+	// ContinuousConfirm (SCS fork): bool (legacy) or plan object
+	// {"enabled":true,"max":20,"prompt":"...","done_marker":"..."}.
 	// Omitted / null leaves existing issue metadata alone (except short 继续/结束
-	// replies while waiting). Explicit false clears the flag.
-	ContinuousConfirm *bool `json:"continuous_confirm,omitempty"`
+	// replies while waiting). Explicit false / enabled:false clears the plan.
+	ContinuousConfirm json.RawMessage `json:"continuous_confirm,omitempty"`
 }
 
 type CommentTriggerPreviewRequest struct {
@@ -1720,6 +1720,11 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	var req CreateCommentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	ccPayload, ccErr := parseContinuousConfirmPayload(req.ContinuousConfirm)
+	if ccErr != nil {
+		writeError(w, http.StatusBadRequest, ccErr.Error())
 		return
 	}
 
@@ -2000,7 +2005,7 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 
 	// SCS fork: continuous confirm loop (连续确认).
 	if authorType == "member" {
-		h.handleContinuousConfirmOnMemberComment(r.Context(), issue, comment, req.ContinuousConfirm, resp.TriggerOutcomes, triggeredAgents)
+		h.handleContinuousConfirmOnMemberComment(r.Context(), issue, comment, ccPayload, resp.TriggerOutcomes, triggeredAgents)
 	}
 
 	writeJSON(w, http.StatusCreated, resp)

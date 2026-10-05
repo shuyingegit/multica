@@ -637,7 +637,20 @@
     "restart_send": "停止并发送",
     "restart_failed": "没能停止当前运行，消息还没有发送。",
     "continuous_confirm": "连续确认",
-    "continuous_confirm_hint": "勾选后：智能体每轮结束后若票未完结，会自动续跑；卡住或超过上限时再来问你。取消勾选则本票不再自动续跑。"
+    "continuous_confirm_hint": "开启后按「续跑计划」自动外循环：可设次数、话术与结束标记。点齿轮可编辑计划。",
+    "continuous_confirm_settings": "续跑计划设置",
+    "continuous_confirm_plan_help": "当前回合结束后按次数自动续跑。模型输出含结束标记，或票变为 done/cancelled，或点停止，即结束。",
+    "continuous_confirm_max": "连续确认次数",
+    "continuous_confirm_done_marker": "结束标记",
+    "continuous_confirm_prompt": "每轮续跑话术",
+    "continuous_confirm_placeholders": "可用占位符：{n} 当前轮、{max} 总次数、{done} 结束标记。",
+    "continuous_confirm_reset": "恢复默认",
+    "continuous_confirm_apply": "保存",
+    "continuous_confirm_progress": "续跑计划 {{current}}/{{max}}",
+    "continuous_confirm_running": "进行中",
+    "continuous_confirm_waiting": "等待你确认",
+    "continuous_confirm_done_hint": "结束标记：{{marker}}",
+    "continuous_confirm_stop": "停止续跑"
   },
   "reply": {
     "placeholder": "回复...",

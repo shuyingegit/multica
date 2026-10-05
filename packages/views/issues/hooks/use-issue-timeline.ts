@@ -360,7 +360,12 @@ export function useIssueTimeline(issueId: string, userId?: string) {
       attachmentIds?: string[],
       suppressAgentIds?: string[],
       steerTaskIds?: string[],
-      continuousConfirm?: boolean,
+      continuousConfirm?: boolean | {
+        enabled: boolean;
+        max?: number;
+        prompt?: string;
+        done_marker?: string;
+      },
     ): Promise<string | false> => {
       if (!content.trim() || !userId) return false;
       try {
@@ -392,7 +397,12 @@ export function useIssueTimeline(issueId: string, userId?: string) {
       attachmentIds?: string[],
       suppressAgentIds?: string[],
       steerTaskIds?: string[],
-      continuousConfirm?: boolean,
+      continuousConfirm?: boolean | {
+        enabled: boolean;
+        max?: number;
+        prompt?: string;
+        done_marker?: string;
+      },
     ): Promise<string | false> => {
       if (!content.trim() || !userId) return false;
       try {

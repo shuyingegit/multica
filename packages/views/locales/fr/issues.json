@@ -656,7 +656,20 @@
     "restart_send": "Arrêter et envoyer",
     "restart_failed": "Impossible d'arrêter l'exécution en cours. Votre message n'a pas été envoyé.",
     "continuous_confirm": "Continuer",
-    "continuous_confirm_hint": "Si coché, l’agent enchaîne après chaque tour tant que le ticket n’est pas terminé ; en cas de blocage ou de plafond, on vous demande. Décochez pour arrêter."
+    "continuous_confirm_hint": "Active un plan de boucle externe. Ouvrez l’engrenage pour régler tours, texte et marqueur de fin.",
+    "continuous_confirm_settings": "Plan Continuer",
+    "continuous_confirm_plan_help": "Après le tour en cours, enchaîne jusqu’à N tours. S’arrête sur le marqueur de fin, done/cancelled, ou arrêt manuel.",
+    "continuous_confirm_max": "Nombre de tours",
+    "continuous_confirm_done_marker": "Marqueur de fin",
+    "continuous_confirm_prompt": "Texte par tour",
+    "continuous_confirm_placeholders": "Placeholders : {n} tour, {max} total, {done} marqueur.",
+    "continuous_confirm_reset": "Réinitialiser",
+    "continuous_confirm_apply": "Enregistrer",
+    "continuous_confirm_progress": "Plan {{current}}/{{max}}",
+    "continuous_confirm_running": "En cours",
+    "continuous_confirm_waiting": "En attente",
+    "continuous_confirm_done_hint": "Marqueur : {{marker}}",
+    "continuous_confirm_stop": "Arrêter"
   },
   "reply": {
     "placeholder": "Laisser une réponse...",

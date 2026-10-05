@@ -6,7 +6,6 @@ import { ContentEditor, type ContentEditorRef, useFileDropZone, FileDropOverlay,
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { Button } from "@multica/ui/components/ui/button";
-import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { contentReferencesAttachment, type AgentTask } from "@multica/core/types";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
 import { useCommentDraftStore } from "@multica/core/issues/stores";
@@ -21,6 +20,11 @@ import { useStopRunsBeforeSend } from "./use-stop-runs-before-send";
 import { useCommentUploads } from "./use-comment-uploads";
 import { useQuickActionMenu } from "../hooks/use-quick-action-menu";
 import { useStickyComposer } from "../hooks/use-sticky-composer";
+import {
+  ContinuousConfirmControls,
+  useContinuousConfirmDraftState,
+} from "./continuous-confirm-controls";
+import { toContinuousConfirmPayload } from "../lib/continuous-confirm";
 
 interface CommentInputProps {
   issueId: string;
@@ -32,7 +36,12 @@ interface CommentInputProps {
     attachmentIds?: string[],
     suppressAgentIds?: string[],
     steerTaskIds?: string[],
-    continuousConfirm?: boolean,
+    continuousConfirm?: boolean | {
+      enabled: boolean;
+      max?: number;
+      prompt?: string;
+      done_marker?: string;
+    },
   ) => Promise<string | boolean>;
   /** Called after the server accepts the comment and the composer is cleared. */
   onAccepted?: (commentId: string) => void;
@@ -65,8 +74,13 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
   const persistedDraft = useCommentDraftStore((store) => store.getDraft(draftKey));
   const [content, setContent] = useState(initialDraft ?? "");
   const [isEmpty, setIsEmpty] = useState(() => !initialDraft?.trim());
-  // SCS fork: default ON — keep waking the agent across turns until done.
-  const [continuousConfirm, setContinuousConfirm] = useState(true);
+  // SCS fork: outer-loop plan (default ON; gear edits max/prompt/DONE).
+  const {
+    enabled: continuousConfirm,
+    setEnabled: setContinuousConfirm,
+    draft: continuousConfirmDraft,
+    setDraft: setContinuousConfirmDraft,
+  } = useContinuousConfirmDraftState();
   const annotations = useCommentDraftStore((s) => s.getAnnotations(draftKey));
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = annotations.length ? hasReplyIntent(content, annotations) : !isEmpty;
@@ -200,7 +214,7 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
         activeIds.length > 0 ? activeIds : undefined,
         suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
         steerTaskIds.length > 0 ? steerTaskIds : undefined,
-        continuousConfirm,
+        toContinuousConfirmPayload(continuousConfirm, continuousConfirmDraft),
       ).then((commentId) => {
         acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
         return !!commentId;
@@ -309,7 +323,7 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
           </div>
         </div>
       )}
-      <div className="absolute bottom-1 left-2 right-52 min-w-0">
+      <div className="absolute bottom-1 left-2 right-60 min-w-0">
         <CommentTriggerChips
           recipients={recipients}
           blocked={triggerPreview.blocked}
@@ -319,17 +333,12 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
         />
       </div>
       <div className="absolute bottom-1 right-1.5 flex items-center gap-1.5">
-        <label
-          className="flex items-center gap-1 pr-1 text-caption text-muted-foreground cursor-pointer select-none"
-          title={t(($) => $.comment.continuous_confirm_hint)}
-        >
-          <Checkbox
-            checked={continuousConfirm}
-            onCheckedChange={(v) => setContinuousConfirm(v === true)}
-            aria-label={t(($) => $.comment.continuous_confirm)}
-          />
-          <span className="whitespace-nowrap">{t(($) => $.comment.continuous_confirm)}</span>
-        </label>
+        <ContinuousConfirmControls
+          enabled={continuousConfirm}
+          onEnabledChange={setContinuousConfirm}
+          draft={continuousConfirmDraft}
+          onDraftChange={setContinuousConfirmDraft}
+        />
         <FileUploadButton
           size="sm"
           multiple

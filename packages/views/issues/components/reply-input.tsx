@@ -7,7 +7,6 @@ import { ContentEditor, type ContentEditorRef, useFileDropZone, FileDropOverlay,
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { Button } from "@multica/ui/components/ui/button";
-import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { contentReferencesAttachment, type AgentTask } from "@multica/core/types";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
@@ -22,6 +21,11 @@ import { SteerAttachmentNotice } from "./steer-attachment-notice";
 import { useStopRunsBeforeSend } from "./use-stop-runs-before-send";
 import { useCommentUploads } from "./use-comment-uploads";
 import { useQuickActionMenu } from "../hooks/use-quick-action-menu";
+import {
+  ContinuousConfirmControls,
+  useContinuousConfirmDraftState,
+} from "./continuous-confirm-controls";
+import { toContinuousConfirmPayload } from "../lib/continuous-confirm";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,7 +44,12 @@ interface ReplyInputProps {
     attachmentIds?: string[],
     suppressAgentIds?: string[],
     steerTaskIds?: string[],
-    continuousConfirm?: boolean,
+    continuousConfirm?: boolean | {
+      enabled: boolean;
+      max?: number;
+      prompt?: string;
+      done_marker?: string;
+    },
   ) => Promise<string | boolean>;
   /** Called after the server accepts the reply and the composer is cleared. */
   onAccepted?: (commentId: string) => void;
@@ -96,7 +105,12 @@ function ReplyInput({
   const [content, setContent] = useState(initialDraft ?? "");
   const setDraft = useCommentDraftStore((s) => s.setDraft);
   const [isEmpty, setIsEmpty] = useState(!initialDraft?.trim());
-  const [continuousConfirm, setContinuousConfirm] = useState(true);
+  const {
+    enabled: continuousConfirm,
+    setEnabled: setContinuousConfirm,
+    draft: continuousConfirmDraft,
+    setDraft: setContinuousConfirmDraft,
+  } = useContinuousConfirmDraftState();
   const annotations = useCommentDraftStore((s) => draftKey ? s.getAnnotations(draftKey) : EMPTY_REPLY_ANNOTATIONS);
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = !targetMissing && (annotations.length ? hasReplyIntent(content, annotations) : !isEmpty);
@@ -208,7 +222,7 @@ function ReplyInput({
         activeIds.length > 0 ? activeIds : undefined,
         suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
         steerTaskIds.length > 0 ? steerTaskIds : undefined,
-        continuousConfirm,
+        toContinuousConfirmPayload(continuousConfirm, continuousConfirmDraft),
       ).then((commentId) => {
         acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
         return !!commentId;
@@ -317,7 +331,7 @@ function ReplyInput({
             <p className="text-muted-foreground">{placeholderText}</p>
           </div>
         )}
-        <div className="absolute bottom-0 left-0 right-44 min-w-0">
+        <div className="absolute bottom-0 left-0 right-56 min-w-0">
           <CommentTriggerChips
             recipients={recipients}
             blocked={triggerPreview.blocked}
@@ -327,17 +341,12 @@ function ReplyInput({
           />
         </div>
         <div className="absolute bottom-0 right-0 flex items-center gap-1.5">
-          <label
-            className="flex items-center gap-1 pr-1 text-caption text-muted-foreground cursor-pointer select-none"
-            title={t(($) => $.comment.continuous_confirm_hint)}
-          >
-            <Checkbox
-              checked={continuousConfirm}
-              onCheckedChange={(v) => setContinuousConfirm(v === true)}
-              aria-label={t(($) => $.comment.continuous_confirm)}
-            />
-            <span className="whitespace-nowrap">{t(($) => $.comment.continuous_confirm)}</span>
-          </label>
+          <ContinuousConfirmControls
+            enabled={continuousConfirm}
+            onEnabledChange={setContinuousConfirm}
+            draft={continuousConfirmDraft}
+            onDraftChange={setContinuousConfirmDraft}
+          />
           <FileUploadButton
             size="sm"
             multiple

@@ -1644,7 +1644,13 @@ export class ApiClient {
     attachmentIds?: string[],
     suppressAgentIds?: string[],
     steerTaskIds?: string[],
-    continuousConfirm?: boolean,
+    /** SCS fork: bool (legacy) or outer-loop plan object. */
+    continuousConfirm?: boolean | {
+      enabled: boolean;
+      max?: number;
+      prompt?: string;
+      done_marker?: string;
+    },
   ): Promise<Comment> {
     return this.fetch(`/api/issues/${issueId}/comments`, {
       method: "POST",
@@ -1657,6 +1663,28 @@ export class ApiClient {
         ...(steerTaskIds?.length ? { steer_task_ids: steerTaskIds } : {}),
         ...(continuousConfirm !== undefined ? { continuous_confirm: continuousConfirm } : {}),
       }),
+    });
+  }
+
+  /** SCS fork / platform: PUT a single issue.metadata key (primitive value). */
+  async setIssueMetadataKey(
+    issueId: string,
+    key: string,
+    value: string | number | boolean,
+  ): Promise<{ metadata: Record<string, string | number | boolean>; issue_revision?: number }> {
+    return this.fetch(`/api/issues/${issueId}/metadata/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    });
+  }
+
+  /** SCS fork / platform: DELETE a single issue.metadata key. */
+  async deleteIssueMetadataKey(
+    issueId: string,
+    key: string,
+  ): Promise<{ metadata: Record<string, string | number | boolean>; issue_revision?: number }> {
+    return this.fetch(`/api/issues/${issueId}/metadata/${encodeURIComponent(key)}`, {
+      method: "DELETE",
     });
   }
 

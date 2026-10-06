@@ -128,11 +128,52 @@ func (h *Handler) enableContinuousConfirm(
 		plan.DoneMarker = service.ContinuousConfirmDefaultDoneMarker
 	}
 
+	// Premature done/cancelled must not strand the plan: reopen so the next
+	// completion path can actually enqueue (SCS-298).
+	if issue.Status == "done" || issue.Status == "cancelled" {
+		issue = h.reopenIssueForContinuousConfirm(ctx, issue,
+			fmt.Sprintf("已开启续跑计划，票从 %s 改回 in_progress。", issue.Status))
+	}
+
 	h.setContinuousConfirmMeta(ctx, issue, plan)
 	slog.Info("continuous confirm: enabled",
 		"issue_id", uuidToString(issue.ID), "agent_id", agentID,
 		"max", plan.EffectiveMax())
 	return agentID
+}
+
+// reopenIssueForContinuousConfirm moves done/cancelled → in_progress so the
+// outer loop can actually keep running. Returns the refreshed issue row.
+func (h *Handler) reopenIssueForContinuousConfirm(ctx context.Context, issue db.Issue, reason string) db.Issue {
+	if issue.Status != "done" && issue.Status != "cancelled" {
+		return issue
+	}
+	prev := issue.Status
+	updated, err := h.Queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+		ID:          issue.ID,
+		Status:      "in_progress",
+		WorkspaceID: issue.WorkspaceID,
+	})
+	if err != nil {
+		slog.Warn("continuous confirm: reopen status failed",
+			"issue_id", uuidToString(issue.ID), "from", prev, "error", err)
+		return issue
+	}
+	prefix := h.getIssuePrefix(ctx, updated.WorkspaceID)
+	resp := issueToResponse(updated, prefix)
+	h.fillStatusCategory(ctx, updated.WorkspaceID, &resp)
+	h.publish(protocol.EventIssueUpdated, uuidToString(updated.WorkspaceID), "system", "", map[string]any{
+		"issue":          resp,
+		"status_changed": true,
+		"prev_status":    prev,
+		"source":         "continuous_confirm",
+	})
+	msg := reason
+	if strings.TrimSpace(msg) == "" {
+		msg = fmt.Sprintf("票此前为 %s，续跑计划仍有效且未检测到结束标记，已自动改回 in_progress。", prev)
+	}
+	h.postContinuousConfirmSystemComment(ctx, updated, "【连续确认】"+msg)
+	return updated
 }
 
 func (h *Handler) disableContinuousConfirm(ctx context.Context, issue db.Issue) {
@@ -260,7 +301,9 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 		h.disableContinuousConfirm(ctx, fresh)
 		h.postContinuousConfirmSystemComment(ctx, fresh, "【连续确认】已按你的指示结束自动续跑。")
 	default:
-		if plan.Waiting && !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
+		// Heal stalled plans: enabled, no active task (missed completion hook,
+		// premature done hard-stop on older builds, etc.).
+		if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
 			h.resumeContinuousConfirm(ctx, fresh, plan.AgentID, plan.Rounds)
 		}
 	}
@@ -302,20 +345,31 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 		agentID = uuidToString(task.AgentID)
 	}
 
-	if service.ContinuousConfirmHardStopStatus(issue.Status) {
+	agentText := h.continuousConfirmAgentText(ctx, issue, agentID, task)
+	doneMarker := plan.EffectiveDoneMarker()
+
+	// cancelled → always stop. done without DONE marker → reopen (premature
+	// close). done with marker → stop. This fixes SCS-298 where the agent
+	// kept marking the ticket done while the UI still said「续跑进行中」.
+	if issue.Status == "cancelled" {
 		h.disableContinuousConfirm(ctx, issue)
+		h.postContinuousConfirmSystemComment(ctx, issue, "【连续确认】票已取消，续跑计划已停止。")
+		return
+	}
+	if issue.Status == "done" {
+		if service.ContinuousConfirmHasDoneMarker(agentText, doneMarker) {
+			h.disableContinuousConfirm(ctx, issue)
+			h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmStoppedDoneContent(doneMarker))
+			return
+		}
+		issue = h.reopenIssueForContinuousConfirm(ctx, issue, "")
+	} else if service.ContinuousConfirmHasDoneMarker(agentText, doneMarker) {
+		h.disableContinuousConfirm(ctx, issue)
+		h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmStoppedDoneContent(doneMarker))
 		return
 	}
 
 	if h.issueHasActiveAgentTask(ctx, issue.ID, task.ID) {
-		return
-	}
-
-	agentText := h.continuousConfirmAgentText(ctx, issue, agentID, task)
-	doneMarker := plan.EffectiveDoneMarker()
-	if service.ContinuousConfirmHasDoneMarker(agentText, doneMarker) {
-		h.disableContinuousConfirm(ctx, issue)
-		h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmStoppedDoneContent(doneMarker))
 		return
 	}
 

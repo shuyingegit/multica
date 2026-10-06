@@ -668,6 +668,9 @@
     "continuous_confirm_progress": "Plan {{current}}/{{max}}",
     "continuous_confirm_running": "Running",
     "continuous_confirm_waiting": "Waiting for you",
+    "continuous_confirm_first_round": "First round running",
+    "continuous_confirm_stalled": "Stalled (no active task — post a comment to wake)",
+    "continuous_confirm_stalled_done": "Stalled (issue is done; send with Keep going to reopen)",
     "continuous_confirm_done_hint": "Done marker: {{marker}}",
     "continuous_confirm_stop": "Stop plan"
   },

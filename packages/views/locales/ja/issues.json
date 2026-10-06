@@ -649,6 +649,9 @@
     "continuous_confirm_progress": "計画 {{current}}/{{max}}",
     "continuous_confirm_running": "実行中",
     "continuous_confirm_waiting": "確認待ち",
+    "continuous_confirm_first_round": "初回実行中",
+    "continuous_confirm_stalled": "停滞中（実行中タスクなし。コメントで再開）",
+    "continuous_confirm_stalled_done": "停滞中（チケット完了済み。連続確認を付けて送信すると再開）",
     "continuous_confirm_done_hint": "終了マーカー：{{marker}}",
     "continuous_confirm_stop": "停止"
   },

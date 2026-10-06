@@ -668,6 +668,9 @@
     "continuous_confirm_progress": "Plan {{current}}/{{max}}",
     "continuous_confirm_running": "En cours",
     "continuous_confirm_waiting": "En attente",
+    "continuous_confirm_first_round": "Premier tour en cours",
+    "continuous_confirm_stalled": "En pause (aucune tâche active — commentez pour relancer)",
+    "continuous_confirm_stalled_done": "En pause (ticket terminé — renvoyez avec Continuer pour rouvrir)",
     "continuous_confirm_done_hint": "Marqueur : {{marker}}",
     "continuous_confirm_stop": "Arrêter"
   },

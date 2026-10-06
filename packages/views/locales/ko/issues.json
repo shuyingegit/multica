@@ -649,6 +649,9 @@
     "continuous_confirm_progress": "계획 {{current}}/{{max}}",
     "continuous_confirm_running": "진행 중",
     "continuous_confirm_waiting": "확인 대기",
+    "continuous_confirm_first_round": "첫 라운드 실행 중",
+    "continuous_confirm_stalled": "정체（실행 중 작업 없음. 댓글로 깨우기）",
+    "continuous_confirm_stalled_done": "정체（이슈 완료 상태. 연속 확인 체크 후 전송하면 재개）",
     "continuous_confirm_done_hint": "종료 마커: {{marker}}",
     "continuous_confirm_stop": "중지"
   },

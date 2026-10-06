@@ -81,14 +81,15 @@ func TestContinuousConfirmNeedsIntervention(t *testing.T) {
 	}
 }
 
-func TestClampContinuousConfirmMax(t *testing.T) {
-	if ClampContinuousConfirmMax(0) != ContinuousConfirmDefaultMax {
-		t.Fatal("default")
+func TestContinuousConfirmShouldReopenDone(t *testing.T) {
+	marker := ContinuousConfirmDefaultDoneMarker
+	if !ContinuousConfirmShouldReopenDone("done", "还在推广", marker) {
+		t.Fatal("done without marker should reopen")
 	}
-	if ClampContinuousConfirmMax(999) != ContinuousConfirmAbsoluteMax {
-		t.Fatal("absolute")
+	if ContinuousConfirmShouldReopenDone("done", "好了"+marker, marker) {
+		t.Fatal("done with marker must not reopen")
 	}
-	if ClampContinuousConfirmMax(7) != 7 {
-		t.Fatal("passthrough")
+	if ContinuousConfirmShouldReopenDone("in_progress", "x", marker) {
+		t.Fatal("in_progress must not reopen")
 	}
 }

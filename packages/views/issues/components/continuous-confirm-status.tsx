@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2, Square } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@multica/ui/components/ui/button";
 import { Progress } from "@multica/ui/components/ui/progress";
 import { api } from "@multica/core/api";
-import { issueKeys } from "@multica/core/issues";
+import { issueKeys, issueTasksOptions } from "@multica/core/issues";
 import { useWorkspaceId } from "@multica/core/hooks";
 import type { Issue } from "@multica/core/types";
 import { useT } from "../../i18n";
@@ -26,10 +26,24 @@ export function ContinuousConfirmStatus({ issue }: Props) {
   const wsId = useWorkspaceId();
   const plan = parseContinuousConfirmPlan(issue.metadata);
   const [stopping, setStopping] = useState(false);
+  const { data: tasks } = useQuery(issueTasksOptions(issue.id));
+
+  const activeTask = useMemo(() => {
+    if (!tasks?.length) return false;
+    return tasks.some((task) => {
+      const s = task.status;
+      return (
+        s === "running" ||
+        s === "queued" ||
+        s === "dispatched" ||
+        s === "deferred" ||
+        s === "waiting_local_directory"
+      );
+    });
+  }, [tasks]);
 
   const stopMutation = useMutation({
     mutationFn: async () => {
-      // Clear the plan keys so the outer loop and UI both drop immediately.
       const keys = Object.values(CONTINUOUS_CONFIRM_META);
       for (const key of keys) {
         try {
@@ -47,10 +61,20 @@ export function ContinuousConfirmStatus({ issue }: Props) {
 
   if (!plan) return null;
 
-  const pct = plan.max > 0 ? Math.min(100, Math.round((plan.rounds / plan.max) * 100)) : 0;
-  const statusLabel = plan.waiting
-    ? t(($) => $.comment.continuous_confirm_waiting)
-    : t(($) => $.comment.continuous_confirm_running);
+  const closed = issue.status === "done" || issue.status === "cancelled";
+  const displayRound = plan.rounds > 0 ? plan.rounds : activeTask ? 1 : 0;
+  const pct = plan.max > 0 ? Math.min(100, Math.round((displayRound / plan.max) * 100)) : 0;
+
+  let statusLabel = t(($) => $.comment.continuous_confirm_running);
+  if (plan.waiting) {
+    statusLabel = t(($) => $.comment.continuous_confirm_waiting);
+  } else if (closed) {
+    statusLabel = t(($) => $.comment.continuous_confirm_stalled_done);
+  } else if (!activeTask) {
+    statusLabel = t(($) => $.comment.continuous_confirm_stalled);
+  } else if (plan.rounds <= 0) {
+    statusLabel = t(($) => $.comment.continuous_confirm_first_round);
+  }
 
   return (
     <div
@@ -61,7 +85,7 @@ export function ContinuousConfirmStatus({ issue }: Props) {
         <div className="min-w-0 space-y-0.5">
           <div className="font-medium text-foreground">
             {t(($) => $.comment.continuous_confirm_progress, {
-              current: plan.rounds,
+              current: displayRound,
               max: plan.max,
             })}
             <span className="ml-1.5 font-normal text-muted-foreground">· {statusLabel}</span>

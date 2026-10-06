@@ -234,8 +234,8 @@ func ContinuousConfirmUserIntent(content string) string {
 	return ""
 }
 
-// ContinuousConfirmHardStopStatus is statuses where auto-continue ends with no
-// ask-user prompt. Only thoroughly finished / cancelled tickets stop the loop.
+// ContinuousConfirmHardStopStatus is statuses that end the loop unless the
+// plan decides to reopen (see ContinuousConfirmShouldReopenDone).
 func ContinuousConfirmHardStopStatus(status string) bool {
 	switch status {
 	case "done", "cancelled":
@@ -243,6 +243,14 @@ func ContinuousConfirmHardStopStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+// ContinuousConfirmShouldReopenDone is true when the issue is marked done but
+// the agent did NOT emit the plan's DONE marker. Long-running tickets (e.g.
+// SCS-298) often get prematurely set to done; with an active plan we reopen
+// and keep looping instead of silently dying while the UI still says "进行中".
+func ContinuousConfirmShouldReopenDone(status, agentText, doneMarker string) bool {
+	return status == "done" && !ContinuousConfirmHasDoneMarker(agentText, doneMarker)
 }
 
 // ContinuousConfirmTerminalStatus is kept for callers/tests that want the

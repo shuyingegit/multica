@@ -649,6 +649,9 @@
     "continuous_confirm_progress": "续跑计划 {{current}}/{{max}}",
     "continuous_confirm_running": "进行中",
     "continuous_confirm_waiting": "等待你确认",
+    "continuous_confirm_first_round": "首轮执行中",
+    "continuous_confirm_stalled": "已停滞（无运行中任务，再发一条评论可唤醒）",
+    "continuous_confirm_stalled_done": "已停滞（票已是完成态；发评论勾选连续确认会自动拉回进行中）",
     "continuous_confirm_done_hint": "结束标记：{{marker}}",
     "continuous_confirm_stop": "停止续跑"
   },

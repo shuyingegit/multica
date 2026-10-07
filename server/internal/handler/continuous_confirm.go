@@ -225,6 +225,7 @@ func (h *Handler) setContinuousConfirmMeta(ctx context.Context, issue db.Issue, 
 		service.ContinuousConfirmPromptMetaKey:     plan.EffectivePrompt(),
 		service.ContinuousConfirmDoneMarkerMetaKey: plan.EffectiveDoneMarker(),
 		service.ContinuousConfirmBriefMetaKey:      plan.Brief,
+		service.ContinuousConfirmFailStreakMetaKey: plan.FailStreak,
 	}
 	for k, v := range keys {
 		raw, err := json.Marshal(v)
@@ -253,6 +254,7 @@ func (h *Handler) clearContinuousConfirmMeta(ctx context.Context, issue db.Issue
 		service.ContinuousConfirmPromptMetaKey,
 		service.ContinuousConfirmDoneMarkerMetaKey,
 		service.ContinuousConfirmBriefMetaKey,
+		service.ContinuousConfirmFailStreakMetaKey,
 	} {
 		if _, err := h.Queries.DeleteIssueMetadataKey(ctx, db.DeleteIssueMetadataKeyParams{
 			ID:          issue.ID,
@@ -428,10 +430,45 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 		return
 	}
 
-	if terminal == "failed" || issue.Status == "blocked" || service.ContinuousConfirmNeedsIntervention(agentText) {
+	if terminal == "failed" {
+		errText := ""
+		if task.Error.Valid {
+			errText = task.Error.String
+		}
+		// Claude long-session pipe crash (and similar): auto-retry instead of
+		// parking the outer loop on「请回复继续」— that is what made SCS-298 look
+		// like the whole continuous plan died.
+		if service.ContinuousConfirmIsTransientFailure(errText) &&
+			plan.FailStreak < service.ContinuousConfirmTransientRetryMax {
+			plan.FailStreak++
+			plan.Waiting = false
+			h.setContinuousConfirmMeta(ctx, issue, plan)
+			h.postContinuousConfirmSystemComment(ctx, issue,
+				service.ContinuousConfirmTransientRetryContent(
+					plan.FailStreak, service.ContinuousConfirmTransientRetryMax, errText))
+			// Re-run the same round budget (the failed turn did no useful work).
+			round := plan.Rounds
+			if round < 1 {
+				round = 1
+			}
+			h.enqueueContinuousConfirmRound(ctx, issue, agentID, round)
+			return
+		}
 		h.askContinuousConfirmUser(ctx, issue, agentID, plan.Rounds,
 			"智能体本轮失败、已 blocked，或明确需要用户介入")
 		return
+	}
+
+	if issue.Status == "blocked" || service.ContinuousConfirmNeedsIntervention(agentText) {
+		h.askContinuousConfirmUser(ctx, issue, agentID, plan.Rounds,
+			"智能体本轮失败、已 blocked，或明确需要用户介入")
+		return
+	}
+
+	// Successful turn: clear transient fail streak.
+	if plan.FailStreak != 0 {
+		plan.FailStreak = 0
+		h.setContinuousConfirmMeta(ctx, issue, plan)
 	}
 
 	max := plan.EffectiveMax()

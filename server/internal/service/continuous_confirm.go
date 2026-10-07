@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
 // SCS fork: continuous confirm ("连续确认") is an explicit outer-loop plan:
@@ -23,6 +24,7 @@ const (
 	ContinuousConfirmPromptMetaKey     = "continuous_confirm_prompt"
 	ContinuousConfirmDoneMarkerMetaKey = "continuous_confirm_done_marker"
 	ContinuousConfirmBriefMetaKey      = "continuous_confirm_brief"
+	ContinuousConfirmFailStreakMetaKey = "continuous_confirm_fail_streak"
 
 	// Absolute hard ceiling (safety). User-facing max is clamped to this.
 	ContinuousConfirmAbsoluteMax = 1000
@@ -30,6 +32,9 @@ const (
 	ContinuousConfirmDefaultMax = 20
 	// Legacy tickets that only have the bool flag (no max key) keep the old budget.
 	ContinuousConfirmLegacyMax = 50
+	// How many consecutive Claude-pipe / process crashes we auto-retry before
+	// asking the user. Keeps long outer loops from dying on one bad resume.
+	ContinuousConfirmTransientRetryMax = 3
 
 	// Deprecated alias — prefer ContinuousConfirmAbsoluteMax / plan.EffectiveMax().
 	ContinuousConfirmMaxRounds = ContinuousConfirmAbsoluteMax
@@ -69,6 +74,7 @@ type ContinuousConfirmPlan struct {
 	Prompt     string // empty → default template
 	DoneMarker string // empty → default marker
 	Brief      string // accumulated user goals / supplements
+	FailStreak int    // consecutive transient agent crashes (pipe closed, etc.)
 }
 
 func (p ContinuousConfirmPlan) EffectiveMax() int {
@@ -267,11 +273,32 @@ func ParseContinuousConfirmMeta(raw []byte) ContinuousConfirmPlan {
 	p.DoneMarker, _ = m[ContinuousConfirmDoneMarkerMetaKey].(string)
 	p.Brief, _ = m[ContinuousConfirmBriefMetaKey].(string)
 	p.Rounds = jsonInt(m[ContinuousConfirmRoundsMetaKey])
+	p.FailStreak = jsonInt(m[ContinuousConfirmFailStreakMetaKey])
 	if _, ok := m[ContinuousConfirmMaxMetaKey]; ok {
 		p.MaxSet = true
 		p.Max = jsonInt(m[ContinuousConfirmMaxMetaKey])
 	}
 	return p
+}
+
+// ContinuousConfirmIsTransientFailure is true for infrastructure crashes that
+// should not park the outer loop waiting for a human (SCS-298 Claude pipe).
+func ContinuousConfirmIsTransientFailure(errText string) bool {
+	return taskfailure.ClaudeResumePipeClosed(errText)
+}
+
+func ContinuousConfirmTransientRetryContent(streak, max int, errText string) string {
+	if max <= 0 {
+		max = ContinuousConfirmTransientRetryMax
+	}
+	short := strings.TrimSpace(errText)
+	if utf8.RuneCountInString(short) > 120 {
+		short = string([]rune(short)[:120]) + "…"
+	}
+	return fmt.Sprintf(
+		"%s检测到智能体瞬时故障（%s）。正在自动重试 %d/%d，续跑计划不中断；可点进度条查看。",
+		continuousConfirmAskMarker, short, streak, max,
+	)
 }
 
 func jsonInt(v any) int {

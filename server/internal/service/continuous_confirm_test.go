@@ -100,6 +100,18 @@ func TestContinuousConfirmPromptNeedsUpgrade(t *testing.T) {
 	}
 }
 
+func TestContinuousConfirmIsTransientFailure(t *testing.T) {
+	if !ContinuousConfirmIsTransientFailure("claude input/control protocol failed: write |1: file already closed") {
+		t.Fatal("pipe-closed must be transient")
+	}
+	if ContinuousConfirmIsTransientFailure("model refused the request") {
+		t.Fatal("model refusal must not be transient")
+	}
+	if ContinuousConfirmIsTransientFailure("") {
+		t.Fatal("empty must not be transient")
+	}
+}
+
 func TestRefineContinuousConfirmBriefFromAgent(t *testing.T) {
 	brief := "是不是还没有结束啊？"
 	agent := "没结束,继续推进 — 我刚刚已经把 R131 的工作做完。\n\n## 详情\n一堆表格"

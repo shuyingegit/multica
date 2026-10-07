@@ -147,7 +147,7 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 %s
 
 【续跑计划维护】
-- 若用户本轮补充了新目标，请用 issue metadata 更新 continuous_confirm_brief（合并进任务目标，勿清空旧目标）。
+- 本轮结束前，请用 issue metadata **重写** continuous_confirm_brief：整理成简洁任务目标清单（保留用户原意 + 你补充的可执行项），不要只留用户原话聊天句。
 - continuous_confirm_max 只可调高、不可调低；已完成轮次 continuous_confirm_rounds 不要回退。
 - 结束标记必须保持为：%s
 - 停机条件只有：在终评单独一行写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
@@ -156,11 +156,82 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 `, round, max, body, plan.EffectiveDoneMarker()))
 }
 
-func ContinuousConfirmProgressContent(round, max int) string {
-	return fmt.Sprintf(
-		"%s续跑计划进度：第 %d/%d 轮（上一轮已结束，正在继续；可点下方进度条查看/改次数与话术）。",
-		continuousConfirmAskMarker, round, max,
+func ContinuousConfirmProgressContent(plan ContinuousConfirmPlan, round, max int) string {
+	brief := truncateRunes(plan.EffectiveBrief(), 400)
+	rendered := ContinuousConfirmRenderPrompt(
+		plan.EffectivePrompt(), round, max, plan.EffectiveDoneMarker(), plan.EffectiveBrief(),
 	)
+	rendered = truncateRunes(rendered, 900)
+	return fmt.Sprintf(
+		"%s续跑计划进度：第 %d/%d 轮（正在继续）\n\n### 当前任务目标\n%s\n\n### 本轮发给智能体的提示\n%s\n\n可点下方进度条查看/修改次数、摘要与话术模板。",
+		continuousConfirmAskMarker, round, max, brief, rendered,
+	)
+}
+
+// ContinuousConfirmPromptNeedsUpgrade is true for empty/legacy templates that
+// lack {brief} (old one-liners stored before the living-plan redesign).
+func ContinuousConfirmPromptNeedsUpgrade(prompt string) bool {
+	p := strings.TrimSpace(prompt)
+	if p == "" {
+		return true
+	}
+	return !strings.Contains(p, "{brief}")
+}
+
+// RefineContinuousConfirmBriefFromAgent updates the 【Agent整理】 section so the
+// visible brief is not stuck on raw user chat lines when the agent forgets to
+// call metadata APIs.
+func RefineContinuousConfirmBriefFromAgent(brief, agentText string) string {
+	summary := extractContinuousConfirmAgentSummary(agentText)
+	if summary == "" {
+		return strings.TrimSpace(brief)
+	}
+	const section = "【Agent整理】"
+	brief = strings.TrimSpace(brief)
+	userPart := brief
+	if i := strings.Index(brief, section); i >= 0 {
+		userPart = strings.TrimSpace(brief[:i])
+	}
+	refined := summary
+	if userPart != "" {
+		refined = userPart + "\n\n" + section + "\n" + summary
+	} else {
+		refined = section + "\n" + summary
+	}
+	return truncateRunes(refined, continuousConfirmBriefMax)
+}
+
+func extractContinuousConfirmAgentSummary(agentText string) string {
+	text := strings.TrimSpace(agentText)
+	if text == "" {
+		return ""
+	}
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" {
+			if len(lines) > 0 {
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(trim, "【连续确认】") {
+			continue
+		}
+		if strings.HasPrefix(trim, "|") || strings.HasPrefix(trim, "---") {
+			continue
+		}
+		// Skip pure heading-only lines after we already have content.
+		lines = append(lines, trim)
+		joined := strings.Join(lines, "\n")
+		if utf8.RuneCountInString(joined) >= 280 {
+			break
+		}
+		if len(lines) >= 6 {
+			break
+		}
+	}
+	return truncateRunes(strings.TrimSpace(strings.Join(lines, "\n")), 360)
 }
 
 func ContinuousConfirmAskUserContent(reason string) string {

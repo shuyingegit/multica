@@ -135,10 +135,11 @@ func (h *Handler) enableContinuousConfirm(
 	}
 	if payload.Prompt != nil {
 		nextPrompt := strings.TrimSpace(*payload.Prompt)
-		// Only replace the template when the user explicitly customized it
-		// (not the stock default). Otherwise keep the previous / default
-		// template and fold new text into the brief instead.
-		if nextPrompt != "" && nextPrompt != service.ContinuousConfirmDefaultPrompt {
+		// Only lock in truly custom templates. Legacy one-liners without
+		// {brief} must not override the living-plan default.
+		if nextPrompt != "" &&
+			nextPrompt != service.ContinuousConfirmDefaultPrompt &&
+			!service.ContinuousConfirmPromptNeedsUpgrade(nextPrompt) {
 			plan.Prompt = nextPrompt
 		}
 	}
@@ -147,7 +148,7 @@ func (h *Handler) enableContinuousConfirm(
 			plan.DoneMarker = dm
 		}
 	}
-	if plan.Prompt == "" {
+	if service.ContinuousConfirmPromptNeedsUpgrade(plan.Prompt) {
 		plan.Prompt = service.ContinuousConfirmDefaultPrompt
 	}
 	if plan.DoneMarker == "" {
@@ -204,8 +205,14 @@ func (h *Handler) reopenIssueForContinuousConfirm(ctx context.Context, issue db.
 	return updated
 }
 
+// disableContinuousConfirm soft-stops the outer loop but keeps brief/max/prompt
+// so the next re-enable does not fall back to a single raw chat line.
 func (h *Handler) disableContinuousConfirm(ctx context.Context, issue db.Issue) {
-	h.clearContinuousConfirmMeta(ctx, issue)
+	plan := service.ParseContinuousConfirmMeta(issue.Metadata)
+	plan.Enabled = false
+	plan.Waiting = false
+	// Preserve brief / max / prompt / done / agent / rounds for resume.
+	h.setContinuousConfirmMeta(ctx, issue, plan)
 }
 
 func (h *Handler) setContinuousConfirmMeta(ctx context.Context, issue db.Issue, plan service.ContinuousConfirmPlan) {
@@ -405,6 +412,18 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 				issue.Status, doneMarker))
 	}
 
+	// Server-side brief polish: agents often forget metadata writes; keep the
+	// visible summary fresh from the latest turn so the UI is not stuck on
+	// the user's first raw sentence.
+	if refined := service.RefineContinuousConfirmBriefFromAgent(plan.Brief, agentText); refined != plan.Brief {
+		plan.Brief = refined
+		h.setContinuousConfirmMeta(ctx, issue, plan)
+	}
+	if service.ContinuousConfirmPromptNeedsUpgrade(plan.Prompt) {
+		plan.Prompt = service.ContinuousConfirmDefaultPrompt
+		h.setContinuousConfirmMeta(ctx, issue, plan)
+	}
+
 	if h.issueHasActiveAgentTask(ctx, issue.ID, task.ID) {
 		return
 	}
@@ -482,9 +501,12 @@ func (h *Handler) enqueueContinuousConfirmRound(ctx context.Context, issue db.Is
 	plan.Waiting = false
 	plan.Rounds = round
 	plan.AgentID = agentID
+	if service.ContinuousConfirmPromptNeedsUpgrade(plan.Prompt) {
+		plan.Prompt = service.ContinuousConfirmDefaultPrompt
+	}
 	max := plan.EffectiveMax()
 	h.setContinuousConfirmMeta(ctx, issue, plan)
-	h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmProgressContent(round, max))
+	h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmProgressContent(plan, round, max))
 
 	note := service.ContinuousConfirmHandoffNote(plan)
 	if _, err := h.TaskService.EnqueueTaskForAgentWithHandoff(ctx, issue, agentUUID, note, pgtype.UUID{}); err != nil {

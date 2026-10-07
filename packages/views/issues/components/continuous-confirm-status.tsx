@@ -26,6 +26,7 @@ import {
   CONTINUOUS_CONFIRM_DEFAULT_PROMPT,
   clampContinuousConfirmMax,
   parseContinuousConfirmPlan,
+  renderContinuousConfirmPrompt,
   saveContinuousConfirmDraft,
 } from "../lib/continuous-confirm";
 
@@ -241,6 +242,21 @@ export function ContinuousConfirmStatus({ issue }: Props) {
               />
               <p className="text-caption text-muted-foreground">
                 {t(($) => $.comment.continuous_confirm_placeholders)}
+              </p>
+            </div>
+            <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/30 p-3">
+              <Label>{t(($) => $.comment.continuous_confirm_preview)}</Label>
+              <pre className="whitespace-pre-wrap break-words text-caption text-muted-foreground max-h-48 overflow-y-auto">
+                {renderContinuousConfirmPrompt(
+                  prompt,
+                  Math.max(displayRound, 1),
+                  max,
+                  doneMarker,
+                  brief,
+                )}
+              </pre>
+              <p className="text-caption text-muted-foreground">
+                {t(($) => $.comment.continuous_confirm_preview_help)}
               </p>
             </div>
           </div>

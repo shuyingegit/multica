@@ -163,10 +163,38 @@ export function toContinuousConfirmPayload(
   draft: ContinuousConfirmDraft,
 ): boolean | ContinuousConfirmOptions {
   if (!enabled) return false;
+  let prompt = draft.prompt.trim() || CONTINUOUS_CONFIRM_DEFAULT_PROMPT;
+  // Don't ship legacy one-liners that lack {brief}.
+  if (!prompt.includes("{brief}")) {
+    prompt = CONTINUOUS_CONFIRM_DEFAULT_PROMPT;
+  }
   return {
     enabled: true,
     max: clampContinuousConfirmMax(draft.max),
-    prompt: draft.prompt.trim() || CONTINUOUS_CONFIRM_DEFAULT_PROMPT,
+    prompt,
     done_marker: draft.doneMarker.trim() || CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
   };
+}
+
+/** Render the per-round prompt the agent will actually see. */
+export function renderContinuousConfirmPrompt(
+  template: string,
+  round: number,
+  max: number,
+  doneMarker: string,
+  brief: string,
+): string {
+  const tpl = template.trim() || CONTINUOUS_CONFIRM_DEFAULT_PROMPT;
+  const n = round > 0 ? round : 1;
+  const m = clampContinuousConfirmMax(max);
+  const done = doneMarker.trim() || CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER;
+  const b =
+    brief.trim() ||
+    "（暂无单独目标摘要；请结合票标题、描述与最近评论继续推进。）";
+  return tpl
+    .replaceAll("{n}", String(n))
+    .replaceAll("{max}", String(m))
+    .replaceAll("{done}", done)
+    .replaceAll("{brief}", b)
+    .trim();
 }

@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestContinuousConfirmUserIntent(t *testing.T) {
 	cases := map[string]string{
@@ -81,6 +84,31 @@ func TestMergeContinuousConfirmBrief(t *testing.T) {
 	// Exact duplicate should not grow.
 	if again := MergeContinuousConfirmBrief(got, "目标B补充"); again != got {
 		t.Fatalf("duplicate should be skipped: %q", again)
+	}
+}
+
+func TestContinuousConfirmPromptNeedsUpgrade(t *testing.T) {
+	if !ContinuousConfirmPromptNeedsUpgrade("") {
+		t.Fatal("empty needs upgrade")
+	}
+	legacy := "【连续确认 第 {n}/{max} 轮】请继续推进同一任务，自行决策。若本轮后任务已彻底完成，请在终评明确写出：{done}。"
+	if !ContinuousConfirmPromptNeedsUpgrade(legacy) {
+		t.Fatal("legacy without {brief} needs upgrade")
+	}
+	if ContinuousConfirmPromptNeedsUpgrade(ContinuousConfirmDefaultPrompt) {
+		t.Fatal("default must not need upgrade")
+	}
+}
+
+func TestRefineContinuousConfirmBriefFromAgent(t *testing.T) {
+	brief := "是不是还没有结束啊？"
+	agent := "没结束,继续推进 — 我刚刚已经把 R131 的工作做完。\n\n## 详情\n一堆表格"
+	got := RefineContinuousConfirmBriefFromAgent(brief, agent)
+	if !strings.Contains(got, "是不是还没有结束啊？") {
+		t.Fatalf("user part lost: %q", got)
+	}
+	if !strings.Contains(got, "【Agent整理】") || !strings.Contains(got, "没结束,继续推进") {
+		t.Fatalf("agent summary missing: %q", got)
 	}
 }
 

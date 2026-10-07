@@ -639,7 +639,7 @@
     "continuous_confirm": "連続確認",
     "continuous_confirm_hint": "オンにすると外ループ計画で自動継続します。歯車で回数・文言・終了マーカーを設定できます。",
     "continuous_confirm_settings": "連続確認の設定",
-    "continuous_confirm_plan_help": "現在のターン終了後、設定回数まで自動継続します。終了マーカー、done/cancelled、または停止で終わります。",
+    "continuous_confirm_plan_help": "現在のターン終了後、設定回数まで自動継続します。終了は終了マーカー・手動停止・回数上限のみ。done/cancelled だけでは止まりません。",
     "continuous_confirm_max": "連続回数",
     "continuous_confirm_done_marker": "終了マーカー",
     "continuous_confirm_prompt": "各ラウンドの文言",

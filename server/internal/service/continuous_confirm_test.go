@@ -25,11 +25,9 @@ func TestContinuousConfirmTerminalStatus(t *testing.T) {
 	if !ContinuousConfirmTerminalStatus("in_review") || ContinuousConfirmTerminalStatus("in_progress") {
 		t.Fatal("terminal status mapping wrong")
 	}
-	if ContinuousConfirmHardStopStatus("in_review") {
-		t.Fatal("in_review must not hard-stop continuous confirm")
-	}
-	if !ContinuousConfirmHardStopStatus("done") || !ContinuousConfirmHardStopStatus("cancelled") {
-		t.Fatal("done/cancelled must hard-stop")
+	// Status alone must never hard-stop the outer loop.
+	if ContinuousConfirmHardStopStatus("in_review") || ContinuousConfirmHardStopStatus("done") || ContinuousConfirmHardStopStatus("cancelled") {
+		t.Fatal("issue status must not hard-stop continuous confirm")
 	}
 }
 
@@ -106,13 +104,19 @@ func TestContinuousConfirmNeedsIntervention(t *testing.T) {
 
 func TestContinuousConfirmShouldReopenDone(t *testing.T) {
 	marker := ContinuousConfirmDefaultDoneMarker
-	if !ContinuousConfirmShouldReopenDone("done", "还在推广", marker) {
+	if !ContinuousConfirmShouldReopenPrematureClose("done", "还在推广", marker) {
 		t.Fatal("done without marker should reopen")
 	}
-	if ContinuousConfirmShouldReopenDone("done", "好了"+marker, marker) {
+	if !ContinuousConfirmShouldReopenPrematureClose("cancelled", "先取消再说", marker) {
+		t.Fatal("cancelled without marker should reopen")
+	}
+	if ContinuousConfirmShouldReopenPrematureClose("done", "好了"+marker, marker) {
 		t.Fatal("done with marker must not reopen")
 	}
-	if ContinuousConfirmShouldReopenDone("in_progress", "x", marker) {
+	if ContinuousConfirmShouldReopenPrematureClose("cancelled", "好了"+marker, marker) {
+		t.Fatal("cancelled with marker must not reopen")
+	}
+	if ContinuousConfirmShouldReopenPrematureClose("in_progress", "x", marker) {
 		t.Fatal("in_progress must not reopen")
 	}
 }

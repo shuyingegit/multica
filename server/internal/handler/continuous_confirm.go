@@ -391,25 +391,18 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 	agentText := h.continuousConfirmAgentText(ctx, issue, agentID, task)
 	doneMarker := plan.EffectiveDoneMarker()
 
-	// cancelled → always stop. done without DONE marker → reopen (premature
-	// close). done with marker → stop. This fixes SCS-298 where the agent
-	// kept marking the ticket done while the UI still said「续跑进行中」.
-	if issue.Status == "cancelled" {
-		h.disableContinuousConfirm(ctx, issue)
-		h.postContinuousConfirmSystemComment(ctx, issue, "【连续确认】票已取消，续跑计划已停止。")
-		return
-	}
-	if issue.Status == "done" {
-		if service.ContinuousConfirmHasDoneMarker(agentText, doneMarker) {
-			h.disableContinuousConfirm(ctx, issue)
-			h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmStoppedDoneContent(doneMarker))
-			return
-		}
-		issue = h.reopenIssueForContinuousConfirm(ctx, issue, "")
-	} else if service.ContinuousConfirmHasDoneMarker(agentText, doneMarker) {
+	// Exit is driven by the explicit DONE marker (agent confirmation against
+	// the brief), not by issue status. Agents often mark done/cancelled too
+	// early — those are reopened and the loop continues (SCS-268 / 陈康).
+	if service.ContinuousConfirmHasDoneMarker(agentText, doneMarker) {
 		h.disableContinuousConfirm(ctx, issue)
 		h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmStoppedDoneContent(doneMarker))
 		return
+	}
+	if service.ContinuousConfirmShouldReopenPrematureClose(issue.Status, agentText, doneMarker) {
+		issue = h.reopenIssueForContinuousConfirm(ctx, issue,
+			fmt.Sprintf("检测到票被标成 %s，但终评没有结束标记 %s，视为尚未确认完结，已拉回 in_progress 并继续对照任务目标确认。",
+				issue.Status, doneMarker))
 	}
 
 	if h.issueHasActiveAgentTask(ctx, issue.ID, task.ID) {

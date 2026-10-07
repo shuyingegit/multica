@@ -7,7 +7,7 @@ export const CONTINUOUS_CONFIRM_DEFAULT_MAX = 20;
 export const CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER = "【连续确认:DONE】";
 
 export const CONTINUOUS_CONFIRM_DEFAULT_PROMPT =
-  "【连续确认 第 {n}/{max} 轮】\n请围绕下列任务目标继续推进，自行决策，不要只回复「收到/继续」敷衍。\n\n## 任务目标（随用户补充更新）\n{brief}\n\n## 退出约定\n若本轮后任务已彻底完成，请在终评明确写出：{done}\n若必须等人才能继续，设为 blocked 并写清缺什么。不要只提问后空等。";
+  "【连续确认 第 {n}/{max} 轮】\n请围绕下列任务目标继续推进，自行决策，不要只回复「收到/继续」敷衍。\n\n## 任务目标（随用户补充更新）\n{brief}\n\n## 退出约定（必须先确认，再写标记）\n对照上面的任务目标逐条自检后，只有下面两种情况才允许结束：\n1. 已 100% 确认目标全部做完 → 在终评明确写出：{done}\n2. 已 100% 确认进入 blocked（没有任何可继续事项，必须等人）→ 设为 blocked，写清缺什么；不要写结束标记\n\n重要：\n- 仅仅把票标成 done / cancelled / in_review **不算结束**。系统会忽略这类状态变更并继续催你确认。\n- 若还有任何可做事项，继续做，**不要**写结束标记，也**不要**误关票。\n- 不要只提问后空等。";
 
 export const CONTINUOUS_CONFIRM_META = {
   enabled: "continuous_confirm",

@@ -658,7 +658,7 @@
     "continuous_confirm": "Keep going",
     "continuous_confirm_hint": "When on, an outer-loop plan auto-continues after each turn. Open the gear to set rounds, prompt, and done marker.",
     "continuous_confirm_settings": "Keep-going plan",
-    "continuous_confirm_plan_help": "After the current turn, auto-continue up to N rounds. Stops when the model writes the done marker, the issue is done/cancelled, or you stop the plan.",
+    "continuous_confirm_plan_help": "After the current turn, auto-continue up to N rounds. Stops only on the done marker, manual stop, or max rounds — marking the issue done/cancelled alone does not stop the plan.",
     "continuous_confirm_max": "Max rounds",
     "continuous_confirm_done_marker": "Done marker",
     "continuous_confirm_prompt": "Per-round prompt",

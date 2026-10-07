@@ -658,7 +658,7 @@
     "continuous_confirm": "Continuer",
     "continuous_confirm_hint": "Active un plan de boucle externe. Ouvrez l’engrenage pour régler tours, texte et marqueur de fin.",
     "continuous_confirm_settings": "Plan Continuer",
-    "continuous_confirm_plan_help": "Après le tour en cours, enchaîne jusqu’à N tours. S’arrête sur le marqueur de fin, done/cancelled, ou arrêt manuel.",
+    "continuous_confirm_plan_help": "Après le tour en cours, enchaîne jusqu’à N tours. S’arrête seulement sur le marqueur de fin, l’arrêt manuel ou le max — done/cancelled seuls ne stoppent pas.",
     "continuous_confirm_max": "Nombre de tours",
     "continuous_confirm_done_marker": "Marqueur de fin",
     "continuous_confirm_prompt": "Texte par tour",

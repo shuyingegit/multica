@@ -47,9 +47,15 @@ const ContinuousConfirmDefaultPrompt = `【连续确认 第 {n}/{max} 轮】
 ## 任务目标（随用户补充更新）
 {brief}
 
-## 退出约定
-若本轮后任务已彻底完成，请在终评明确写出：{done}
-若必须等人才能继续，设为 blocked 并写清缺什么。不要只提问后空等。`
+## 退出约定（必须先确认，再写标记）
+对照上面的任务目标逐条自检后，只有下面两种情况才允许结束：
+1. 已 100% 确认目标全部做完 → 在终评明确写出：{done}
+2. 已 100% 确认进入 blocked（没有任何可继续事项，必须等人）→ 设为 blocked，写清缺什么；不要写结束标记
+
+重要：
+- 仅仅把票标成 done / cancelled / in_review **不算结束**。系统会忽略这类状态变更并继续催你确认。
+- 若还有任何可做事项，继续做，**不要**写结束标记，也**不要**误关票。
+- 不要只提问后空等。`
 
 // ContinuousConfirmPlan is the persisted outer-loop state on issue.metadata.
 type ContinuousConfirmPlan struct {
@@ -143,7 +149,8 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 - 若用户本轮补充了新目标，请用 issue metadata 更新 continuous_confirm_brief（合并进任务目标，勿清空旧目标）。
 - continuous_confirm_max 只可调高、不可调低；已完成轮次 continuous_confirm_rounds 不要回退。
 - 结束标记必须保持为：%s
-- 不要只说「继续」——每次推进都要贴着任务目标做事。
+- 停机条件只有：写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
+- 不要只说「继续」——每次推进都要贴着任务目标做事；结束前必须 100%% 确认已完成或已真正 blocked。
 `, round, max, body, plan.EffectiveDoneMarker()))
 }
 
@@ -332,17 +339,27 @@ func ContinuousConfirmUserIntent(content string) string {
 	return ""
 }
 
+// ContinuousConfirmHardStopStatus is deprecated for exit decisions: issue
+// status alone must never stop the outer loop (agents often mark done/cancelled
+// prematurely). Kept for callers; always false.
 func ContinuousConfirmHardStopStatus(status string) bool {
+	return false
+}
+
+// ContinuousConfirmShouldReopenPrematureClose is true when the issue was closed
+// (done/cancelled) without an explicit DONE marker — treat as agent mistake.
+func ContinuousConfirmShouldReopenPrematureClose(status, agentText, doneMarker string) bool {
 	switch status {
 	case "done", "cancelled":
-		return true
+		return !ContinuousConfirmHasDoneMarker(agentText, doneMarker)
 	default:
 		return false
 	}
 }
 
+// ContinuousConfirmShouldReopenDone keeps the old name for call sites.
 func ContinuousConfirmShouldReopenDone(status, agentText, doneMarker string) bool {
-	return status == "done" && !ContinuousConfirmHasDoneMarker(agentText, doneMarker)
+	return ContinuousConfirmShouldReopenPrematureClose(status, agentText, doneMarker)
 }
 
 func ContinuousConfirmTerminalStatus(status string) bool {

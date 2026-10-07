@@ -56,10 +56,33 @@ func TestParseContinuousConfirmMetaLegacyMax(t *testing.T) {
 }
 
 func TestContinuousConfirmRenderPrompt(t *testing.T) {
-	got := ContinuousConfirmRenderPrompt("第{n}/{max} 结束写{done}", 3, 10, "【连续确认:DONE】")
-	want := "第3/10 结束写【连续确认:DONE】"
+	got := ContinuousConfirmRenderPrompt("第{n}/{max} 结束写{done} 目标:{brief}", 3, 10, "【连续确认:DONE】", "修好登录")
+	want := "第3/10 结束写【连续确认:DONE】 目标:修好登录"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestMergeContinuousConfirmMax(t *testing.T) {
+	if got := MergeContinuousConfirmMax(50, 20, true); got != 50 {
+		t.Fatalf("max must not drop: got %d", got)
+	}
+	if got := MergeContinuousConfirmMax(20, 50, true); got != 50 {
+		t.Fatalf("max should rise: got %d", got)
+	}
+	if got := MergeContinuousConfirmMax(50, 0, false); got != 50 {
+		t.Fatalf("unset incoming keeps prev: got %d", got)
+	}
+}
+
+func TestMergeContinuousConfirmBrief(t *testing.T) {
+	got := MergeContinuousConfirmBrief("目标A", "目标B补充")
+	if got != "目标A\n\n---\n补充：目标B补充" {
+		t.Fatalf("unexpected merge: %q", got)
+	}
+	// Exact duplicate should not grow.
+	if again := MergeContinuousConfirmBrief(got, "目标B补充"); again != got {
+		t.Fatalf("duplicate should be skipped: %q", again)
 	}
 }
 

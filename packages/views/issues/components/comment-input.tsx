@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@multica/ui/lib/utils";
 import { ContentEditor, type ContentEditorRef, useFileDropZone, FileDropOverlay, useLazyEditor, useUploadGate, useComposerSubmit } from "../../editor";
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
@@ -9,6 +10,8 @@ import { Button } from "@multica/ui/components/ui/button";
 import { contentReferencesAttachment, type AgentTask } from "@multica/core/types";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
 import { useCommentDraftStore } from "@multica/core/issues/stores";
+import { issueDetailOptions } from "@multica/core/issues";
+import { useWorkspaceId } from "@multica/core/hooks";
 import { composeAnnotatedReply, hasReplyIntent } from "@multica/core/drafts/reply-annotation";
 import { ReplyAnnotations } from "./reply-annotations";
 import { useT } from "../../i18n";
@@ -24,7 +27,11 @@ import {
   ContinuousConfirmControls,
   useContinuousConfirmDraftState,
 } from "./continuous-confirm-controls";
-import { toContinuousConfirmPayload } from "../lib/continuous-confirm";
+import {
+  draftFromPlanOrStorage,
+  parseContinuousConfirmPlan,
+  toContinuousConfirmPayload,
+} from "../lib/continuous-confirm";
 
 interface CommentInputProps {
   issueId: string;
@@ -58,6 +65,7 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
   const { t } = useT("issues");
   const { t: tEditor } = useT("editor");
   const sendShortcut = useShortcut("send");
+  const wsId = useWorkspaceId();
   const editorRef = useRef<ContentEditorRef>(null);
   // Sending mid-upload would strip the pending image's blob URL out of the
   // markdown and bind no attachment id — the comment posts without the file.
@@ -75,12 +83,21 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
   const [content, setContent] = useState(initialDraft ?? "");
   const [isEmpty, setIsEmpty] = useState(() => !initialDraft?.trim());
   // SCS fork: outer-loop plan (default ON; gear edits max/prompt/DONE).
+  // When a living plan already exists on the issue, seed the composer from it
+  // so a follow-up send won't silently reset max back to 20.
+  const { data: issue } = useQuery(issueDetailOptions(wsId, issueId));
+  const livingPlan = parseContinuousConfirmPlan(issue?.metadata);
   const {
     enabled: continuousConfirm,
     setEnabled: setContinuousConfirm,
     draft: continuousConfirmDraft,
     setDraft: setContinuousConfirmDraft,
   } = useContinuousConfirmDraftState();
+  useEffect(() => {
+    if (!livingPlan) return;
+    setContinuousConfirmDraft(draftFromPlanOrStorage(livingPlan));
+    setContinuousConfirm(true);
+  }, [livingPlan?.max, livingPlan?.prompt, livingPlan?.doneMarker, livingPlan?.enabled, setContinuousConfirm, setContinuousConfirmDraft]);
   const annotations = useCommentDraftStore((s) => s.getAnnotations(draftKey));
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = annotations.length ? hasReplyIntent(content, annotations) : !isEmpty;

@@ -1,13 +1,13 @@
 import type { IssueMetadata } from "@multica/core/types";
 
-/** SCS fork: continuous-confirm outer-loop plan (V1). */
+/** SCS fork: continuous-confirm outer-loop plan. */
 
-export const CONTINUOUS_CONFIRM_ABSOLUTE_MAX = 100;
+export const CONTINUOUS_CONFIRM_ABSOLUTE_MAX = 1000;
 export const CONTINUOUS_CONFIRM_DEFAULT_MAX = 20;
 export const CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER = "【连续确认:DONE】";
 
 export const CONTINUOUS_CONFIRM_DEFAULT_PROMPT =
-  "【连续确认 第 {n}/{max} 轮】请继续推进同一任务，自行决策。若本轮后任务已彻底完成，请在终评明确写出：{done}。若必须等人才能继续，设为 blocked 并写清缺什么。不要只提问后空等。";
+  "【连续确认 第 {n}/{max} 轮】\n请围绕下列任务目标继续推进，自行决策，不要只回复「收到/继续」敷衍。\n\n## 任务目标（随用户补充更新）\n{brief}\n\n## 退出约定\n若本轮后任务已彻底完成，请在终评明确写出：{done}\n若必须等人才能继续，设为 blocked 并写清缺什么。不要只提问后空等。";
 
 export const CONTINUOUS_CONFIRM_META = {
   enabled: "continuous_confirm",
@@ -17,6 +17,7 @@ export const CONTINUOUS_CONFIRM_META = {
   max: "continuous_confirm_max",
   prompt: "continuous_confirm_prompt",
   doneMarker: "continuous_confirm_done_marker",
+  brief: "continuous_confirm_brief",
 } as const;
 
 export type ContinuousConfirmOptions = {
@@ -33,6 +34,7 @@ export type ContinuousConfirmPlanView = {
   max: number;
   prompt: string;
   doneMarker: string;
+  brief: string;
   agentId: string;
 };
 
@@ -47,6 +49,11 @@ export type ContinuousConfirmDraft = {
 export function clampContinuousConfirmMax(n: number): number {
   if (!Number.isFinite(n) || n <= 0) return CONTINUOUS_CONFIRM_DEFAULT_MAX;
   return Math.min(CONTINUOUS_CONFIRM_ABSOLUTE_MAX, Math.max(1, Math.floor(n)));
+}
+
+/** Max only rises while a plan is active. */
+export function mergeContinuousConfirmMax(prev: number, incoming: number): number {
+  return Math.max(clampContinuousConfirmMax(prev), clampContinuousConfirmMax(incoming));
 }
 
 export function loadContinuousConfirmDraft(): ContinuousConfirmDraft {
@@ -134,8 +141,21 @@ export function parseContinuousConfirmPlan(
       CONTINUOUS_CONFIRM_META.doneMarker,
       CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
     ),
+    brief: metaString(meta, CONTINUOUS_CONFIRM_META.brief, ""),
     agentId: metaString(meta, CONTINUOUS_CONFIRM_META.agent, ""),
   };
+}
+
+/** Prefer the living plan's max when composing, so a follow-up send won't reset to 20. */
+export function draftFromPlanOrStorage(plan: ContinuousConfirmPlanView | null): ContinuousConfirmDraft {
+  if (plan) {
+    return {
+      max: plan.max,
+      prompt: plan.prompt || CONTINUOUS_CONFIRM_DEFAULT_PROMPT,
+      doneMarker: plan.doneMarker || CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
+    };
+  }
+  return loadContinuousConfirmDraft();
 }
 
 export function toContinuousConfirmPayload(

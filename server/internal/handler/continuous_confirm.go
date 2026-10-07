@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
 	dbid "github.com/multica-ai/multica/server/pkg/dbid"
@@ -68,6 +70,7 @@ func (h *Handler) enableContinuousConfirm(
 	triggeredAgentIDs []string,
 	fallbackAgentID string,
 	payload ContinuousConfirmPayload,
+	commentContent string,
 ) string {
 	agentID := ""
 	if len(triggeredAgentIDs) > 0 {
@@ -103,23 +106,46 @@ func (h *Handler) enableContinuousConfirm(
 	plan := service.ContinuousConfirmPlan{
 		Enabled:    true,
 		Waiting:    false,
-		Rounds:     0,
+		Rounds:     prev.Rounds, // keep progress when merging into an active plan
 		AgentID:    agentID,
 		Max:        service.ContinuousConfirmDefaultMax,
 		MaxSet:     true,
 		Prompt:     prev.Prompt,
 		DoneMarker: prev.DoneMarker,
+		Brief:      prev.Brief,
 	}
-	if payload.Max != nil {
+	if !prev.Enabled {
+		plan.Rounds = 0
+	}
+	incomingMaxSet := payload.Max != nil
+	switch {
+	case prev.Enabled && prev.MaxSet:
+		// Active plan: max only rises.
+		incoming := 0
+		if incomingMaxSet {
+			incoming = *payload.Max
+		}
+		plan.Max = service.MergeContinuousConfirmMax(prev.EffectiveMax(), incoming, incomingMaxSet)
+	case incomingMaxSet:
 		plan.Max = service.ClampContinuousConfirmMax(*payload.Max)
-	} else if prev.MaxSet {
+	case prev.MaxSet:
 		plan.Max = prev.EffectiveMax()
+	default:
+		plan.Max = service.ContinuousConfirmDefaultMax
 	}
 	if payload.Prompt != nil {
-		plan.Prompt = strings.TrimSpace(*payload.Prompt)
+		nextPrompt := strings.TrimSpace(*payload.Prompt)
+		// Only replace the template when the user explicitly customized it
+		// (not the stock default). Otherwise keep the previous / default
+		// template and fold new text into the brief instead.
+		if nextPrompt != "" && nextPrompt != service.ContinuousConfirmDefaultPrompt {
+			plan.Prompt = nextPrompt
+		}
 	}
 	if payload.DoneMarker != nil {
-		plan.DoneMarker = strings.TrimSpace(*payload.DoneMarker)
+		if dm := strings.TrimSpace(*payload.DoneMarker); dm != "" {
+			plan.DoneMarker = dm
+		}
 	}
 	if plan.Prompt == "" {
 		plan.Prompt = service.ContinuousConfirmDefaultPrompt
@@ -127,6 +153,7 @@ func (h *Handler) enableContinuousConfirm(
 	if plan.DoneMarker == "" {
 		plan.DoneMarker = service.ContinuousConfirmDefaultDoneMarker
 	}
+	plan.Brief = service.MergeContinuousConfirmBrief(plan.Brief, commentContent)
 
 	// Premature done/cancelled must not strand the plan: reopen so the next
 	// completion path can actually enqueue (SCS-298).
@@ -136,9 +163,10 @@ func (h *Handler) enableContinuousConfirm(
 	}
 
 	h.setContinuousConfirmMeta(ctx, issue, plan)
-	slog.Info("continuous confirm: enabled",
+	slog.Info("continuous confirm: enabled/merged",
 		"issue_id", uuidToString(issue.ID), "agent_id", agentID,
-		"max", plan.EffectiveMax())
+		"max", plan.EffectiveMax(), "rounds", plan.Rounds,
+		"brief_len", len(plan.Brief))
 	return agentID
 }
 
@@ -189,6 +217,7 @@ func (h *Handler) setContinuousConfirmMeta(ctx context.Context, issue db.Issue, 
 		service.ContinuousConfirmMaxMetaKey:        plan.EffectiveMax(),
 		service.ContinuousConfirmPromptMetaKey:     plan.EffectivePrompt(),
 		service.ContinuousConfirmDoneMarkerMetaKey: plan.EffectiveDoneMarker(),
+		service.ContinuousConfirmBriefMetaKey:      plan.Brief,
 	}
 	for k, v := range keys {
 		raw, err := json.Marshal(v)
@@ -216,6 +245,7 @@ func (h *Handler) clearContinuousConfirmMeta(ctx context.Context, issue db.Issue
 		service.ContinuousConfirmMaxMetaKey,
 		service.ContinuousConfirmPromptMetaKey,
 		service.ContinuousConfirmDoneMarkerMetaKey,
+		service.ContinuousConfirmBriefMetaKey,
 	} {
 		if _, err := h.Queries.DeleteIssueMetadataKey(ctx, db.DeleteIssueMetadataKeyParams{
 			ID:          issue.ID,
@@ -264,9 +294,16 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 
 	if payload.Set && payload.Enabled {
 		wasWaiting := plan.Waiting
-		agentID := h.enableContinuousConfirm(ctx, fresh, outcomes, triggeredAgentIDs, plan.AgentID, payload)
+		prevRounds := plan.Rounds
+		agentID := h.enableContinuousConfirm(ctx, fresh, outcomes, triggeredAgentIDs, plan.AgentID, payload, comment.Content)
 		if agentID == "" {
 			return
+		}
+		// Re-read after merge so resume keeps the preserved round budget.
+		if refreshed, err := h.Queries.GetIssue(ctx, fresh.ID); err == nil {
+			fresh = refreshed
+			plan = service.ParseContinuousConfirmMeta(fresh.Metadata)
+			prevRounds = plan.Rounds
 		}
 		// If we were waiting on the user, or this comment didn't start any
 		// agent run, kick a follow-up so enabling the plan always continues.
@@ -279,7 +316,7 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 		}
 		if wasWaiting || !triggered {
 			if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
-				h.resumeContinuousConfirm(ctx, fresh, agentID, 0)
+				h.resumeContinuousConfirm(ctx, fresh, agentID, prevRounds)
 			}
 		}
 		return
@@ -301,6 +338,12 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 		h.disableContinuousConfirm(ctx, fresh)
 		h.postContinuousConfirmSystemComment(ctx, fresh, "【连续确认】已按你的指示结束自动续跑。")
 	default:
+		// Fold ordinary supplements into the living plan brief so follow-ups
+		// don't get ignored by the outer loop.
+		if merged := service.MergeContinuousConfirmBrief(plan.Brief, comment.Content); merged != plan.Brief {
+			plan.Brief = merged
+			h.setContinuousConfirmMeta(ctx, fresh, plan)
+		}
 		// Heal stalled plans: enabled, no active task (missed completion hook,
 		// premature done hard-stop on older builds, etc.).
 		if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
@@ -505,4 +548,212 @@ func injectContinuousConfirmHandoff(resp *AgentTaskResponse, issueMetadata []byt
 	} else {
 		resp.HandoffNote = resp.HandoffNote + "\n\n" + note
 	}
+}
+
+type continuousConfirmPlanResponse struct {
+	Enabled    bool   `json:"enabled"`
+	Waiting    bool   `json:"waiting"`
+	Rounds     int    `json:"rounds"`
+	Max        int    `json:"max"`
+	Prompt     string `json:"prompt"`
+	DoneMarker string `json:"done_marker"`
+	Brief      string `json:"brief"`
+	AgentID    string `json:"agent_id,omitempty"`
+}
+
+func continuousConfirmPlanToResponse(p service.ContinuousConfirmPlan) continuousConfirmPlanResponse {
+	return continuousConfirmPlanResponse{
+		Enabled:    p.Enabled,
+		Waiting:    p.Waiting,
+		Rounds:     p.Rounds,
+		Max:        p.EffectiveMax(),
+		Prompt:     p.EffectivePrompt(),
+		DoneMarker: p.EffectiveDoneMarker(),
+		Brief:      p.Brief,
+		AgentID:    p.AgentID,
+	}
+}
+
+// GetContinuousConfirmPlan returns the living outer-loop plan (SCS fork).
+func (h *Handler) GetContinuousConfirmPlan(w http.ResponseWriter, r *http.Request) {
+	issueID := chi.URLParam(r, "id")
+	issue, ok := h.loadIssueForUser(w, r, issueID)
+	if !ok {
+		return
+	}
+	plan := service.ParseContinuousConfirmMeta(issue.Metadata)
+	writeJSON(w, http.StatusOK, continuousConfirmPlanToResponse(plan))
+}
+
+type updateContinuousConfirmPlanRequest struct {
+	Max        *int    `json:"max"`
+	Prompt     *string `json:"prompt"`
+	DoneMarker *string `json:"done_marker"`
+	Brief      *string `json:"brief"`
+	Enabled    *bool   `json:"enabled"`
+}
+
+// UpdateContinuousConfirmPlan lets the user edit max/prompt/brief live.
+// Max never decreases below the current plan max while the plan is active.
+func (h *Handler) UpdateContinuousConfirmPlan(w http.ResponseWriter, r *http.Request) {
+	issueID := chi.URLParam(r, "id")
+	issue, ok := h.loadIssueForUser(w, r, issueID)
+	if !ok {
+		return
+	}
+	if _, ok := requireUserID(w, r); !ok {
+		return
+	}
+	var req updateContinuousConfirmPlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	plan := service.ParseContinuousConfirmMeta(issue.Metadata)
+	if req.Enabled != nil && !*req.Enabled {
+		h.disableContinuousConfirm(r.Context(), issue)
+		writeJSON(w, http.StatusOK, continuousConfirmPlanToResponse(service.ContinuousConfirmPlan{}))
+		return
+	}
+	if !plan.Enabled && (req.Enabled == nil || !*req.Enabled) {
+		writeError(w, http.StatusConflict, "continuous confirm plan is not active")
+		return
+	}
+	plan.Enabled = true
+	if req.Max != nil {
+		plan.Max = service.MergeContinuousConfirmMax(plan.EffectiveMax(), *req.Max, true)
+		plan.MaxSet = true
+	}
+	if req.Prompt != nil {
+		plan.Prompt = strings.TrimSpace(*req.Prompt)
+		if plan.Prompt == "" {
+			plan.Prompt = service.ContinuousConfirmDefaultPrompt
+		}
+	}
+	if req.DoneMarker != nil {
+		plan.DoneMarker = strings.TrimSpace(*req.DoneMarker)
+		if plan.DoneMarker == "" {
+			plan.DoneMarker = service.ContinuousConfirmDefaultDoneMarker
+		}
+	}
+	if req.Brief != nil {
+		plan.Brief = strings.TrimSpace(*req.Brief)
+	}
+	if issue.Status == "done" || issue.Status == "cancelled" {
+		issue = h.reopenIssueForContinuousConfirm(r.Context(), issue, "")
+	}
+	h.setContinuousConfirmMeta(r.Context(), issue, plan)
+	fresh, _ := h.Queries.GetIssue(r.Context(), issue.ID)
+	writeJSON(w, http.StatusOK, continuousConfirmPlanToResponse(service.ParseContinuousConfirmMeta(fresh.Metadata)))
+}
+
+// FireContinuousConfirmPlan immediately steers a running turn or enqueues a round.
+func (h *Handler) FireContinuousConfirmPlan(w http.ResponseWriter, r *http.Request) {
+	issueID := chi.URLParam(r, "id")
+	issue, ok := h.loadIssueForUser(w, r, issueID)
+	if !ok {
+		return
+	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	plan := service.ParseContinuousConfirmMeta(issue.Metadata)
+	if !plan.Enabled {
+		writeError(w, http.StatusConflict, "continuous confirm plan is not active")
+		return
+	}
+	if plan.AgentID == "" {
+		writeError(w, http.StatusConflict, "continuous confirm has no agent")
+		return
+	}
+	if issue.Status == "done" || issue.Status == "cancelled" {
+		issue = h.reopenIssueForContinuousConfirm(r.Context(), issue, "")
+	}
+	if refreshed, err := h.Queries.GetIssue(r.Context(), issue.ID); err == nil {
+		issue = refreshed
+		plan = service.ParseContinuousConfirmMeta(issue.Metadata)
+	}
+	if plan.AgentID == "" {
+		writeError(w, http.StatusConflict, "continuous confirm has no agent")
+		return
+	}
+	plan.Enabled = true
+	plan.Waiting = false
+	h.setContinuousConfirmMeta(r.Context(), issue, plan)
+
+	note := service.ContinuousConfirmHandoffNote(plan) + "\n\n【立即触发】用户要求立刻按当前续跑计划推进。"
+
+	active, err := h.Queries.ListActiveTasksByIssue(r.Context(), issue.ID)
+	if err == nil {
+		for _, task := range active {
+			if !task.AgentID.Valid || uuidToString(task.AgentID) != plan.AgentID {
+				continue
+			}
+			if task.Status != "running" {
+				continue
+			}
+			authorUUID, perr := parseUUIDString(userID)
+			if perr != nil || !authorUUID.Valid {
+				break
+			}
+			reqID := dbid.NewV7()
+			_, serr := h.Queries.CreateTaskSupplement(r.Context(), db.CreateTaskSupplementParams{
+				TaskID:          task.ID,
+				IssueID:         issue.ID,
+				WorkspaceID:     issue.WorkspaceID,
+				AuthorID:        authorUUID,
+				Content:         note,
+				ClientRequestID: reqID,
+			})
+			if serr == nil {
+				h.notifyTaskSupplementAvailable(task)
+				h.postContinuousConfirmSystemComment(r.Context(), issue, "【连续确认】已立即触发：插入当前正在运行的会话。")
+				writeJSON(w, http.StatusOK, map[string]any{
+					"ok":   true,
+					"mode": "steered",
+					"plan": continuousConfirmPlanToResponse(plan),
+				})
+				return
+			}
+			slog.Warn("continuous confirm: fire steer failed, falling back to enqueue",
+				"issue_id", issueID, "error", serr)
+			break
+		}
+	}
+
+	if h.issueHasActiveAgentTask(r.Context(), issue.ID, pgtype.UUID{}) {
+		// Another task is queued/dispatched — don't double-enqueue; just clear waiting.
+		h.postContinuousConfirmSystemComment(r.Context(), issue, "【连续确认】当前已有任务在队列中，立即触发已记录到续跑计划，将在本轮结束后继续。")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":   true,
+			"mode": "deferred",
+			"plan": continuousConfirmPlanToResponse(plan),
+		})
+		return
+	}
+
+	h.resumeContinuousConfirm(r.Context(), issue, plan.AgentID, plan.Rounds)
+	h.postContinuousConfirmSystemComment(r.Context(), issue, "【连续确认】已立即触发：新开一轮续跑。")
+	fresh, _ := h.Queries.GetIssue(r.Context(), issue.ID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"mode": "enqueued",
+		"plan": continuousConfirmPlanToResponse(service.ParseContinuousConfirmMeta(fresh.Metadata)),
+	})
+}
+
+// StopContinuousConfirmPlan clears the living plan.
+func (h *Handler) StopContinuousConfirmPlan(w http.ResponseWriter, r *http.Request) {
+	issueID := chi.URLParam(r, "id")
+	issue, ok := h.loadIssueForUser(w, r, issueID)
+	if !ok {
+		return
+	}
+	if _, ok := requireUserID(w, r); !ok {
+		return
+	}
+	h.disableContinuousConfirm(r.Context(), issue)
+	h.postContinuousConfirmSystemComment(r.Context(), issue, "【连续确认】已按你的指示结束自动续跑。")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

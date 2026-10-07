@@ -1688,6 +1688,71 @@ export class ApiClient {
     });
   }
 
+  /** SCS fork: living continuous-confirm plan. */
+  async getContinuousConfirmPlan(issueId: string): Promise<{
+    enabled: boolean;
+    waiting: boolean;
+    rounds: number;
+    max: number;
+    prompt: string;
+    done_marker: string;
+    brief: string;
+    agent_id?: string;
+  }> {
+    return this.fetch(`/api/issues/${issueId}/continuous-confirm`);
+  }
+
+  async updateContinuousConfirmPlan(
+    issueId: string,
+    body: {
+      max?: number;
+      prompt?: string;
+      done_marker?: string;
+      brief?: string;
+      enabled?: boolean;
+    },
+  ): Promise<{
+    enabled: boolean;
+    waiting: boolean;
+    rounds: number;
+    max: number;
+    prompt: string;
+    done_marker: string;
+    brief: string;
+    agent_id?: string;
+  }> {
+    return this.fetch(`/api/issues/${issueId}/continuous-confirm`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async fireContinuousConfirmPlan(issueId: string): Promise<{
+    ok: boolean;
+    mode: string;
+    plan?: {
+      enabled: boolean;
+      waiting: boolean;
+      rounds: number;
+      max: number;
+      prompt: string;
+      done_marker: string;
+      brief: string;
+    };
+  }> {
+    return this.fetch(`/api/issues/${issueId}/continuous-confirm/fire`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async stopContinuousConfirmPlan(issueId: string): Promise<{ ok: boolean }> {
+    return this.fetch(`/api/issues/${issueId}/continuous-confirm/stop`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
   /** SCS fork: Issue public conversation share (member). */
   async getIssuePublicShare(issueId: string): Promise<{ is_active: false } | import("../issue-public-share").IssuePublicShare> {
     return this.fetch(`/api/issues/${issueId}/public-share`);

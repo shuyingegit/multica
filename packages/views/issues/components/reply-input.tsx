@@ -3,6 +3,7 @@
 import { composeAnnotatedReply, EMPTY_REPLY_ANNOTATIONS, hasReplyIntent } from "@multica/core/drafts/reply-annotation";
 import { ReplyAnnotations } from "./reply-annotations";
 import { useRef, useState, useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ContentEditor, type ContentEditorRef, useFileDropZone, FileDropOverlay, useLazyEditor, useUploadGate, useComposerSubmit } from "../../editor";
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
@@ -11,6 +12,8 @@ import { ActorAvatar } from "../../common/actor-avatar";
 import { contentReferencesAttachment, type AgentTask } from "@multica/core/types";
 import { formatShortcut, useShortcut } from "@multica/core/shortcuts";
 import { useCommentDraftStore, type CommentDraftKey } from "@multica/core/issues/stores";
+import { issueDetailOptions } from "@multica/core/issues";
+import { useWorkspaceId } from "@multica/core/hooks";
 import { cn } from "@multica/ui/lib/utils";
 import type { AvatarSize } from "@multica/ui/lib/avatar-size";
 import { useT } from "../../i18n";
@@ -25,7 +28,11 @@ import {
   ContinuousConfirmControls,
   useContinuousConfirmDraftState,
 } from "./continuous-confirm-controls";
-import { toContinuousConfirmPayload } from "../lib/continuous-confirm";
+import {
+  draftFromPlanOrStorage,
+  parseContinuousConfirmPlan,
+  toContinuousConfirmPayload,
+} from "../lib/continuous-confirm";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +95,7 @@ function ReplyInput({
   const { t } = useT("issues");
   const { t: tEditor } = useT("editor");
   const sendShortcut = useShortcut("send");
+  const wsId = useWorkspaceId();
   const placeholderText = placeholder ?? t(($) => $.reply.placeholder);
   const editorRef = useRef<ContentEditorRef>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -105,12 +113,20 @@ function ReplyInput({
   const [content, setContent] = useState(initialDraft ?? "");
   const setDraft = useCommentDraftStore((s) => s.setDraft);
   const [isEmpty, setIsEmpty] = useState(!initialDraft?.trim());
+  // Seed from the living plan so a reply follow-up won't reset max to 20.
+  const { data: issue } = useQuery(issueDetailOptions(wsId, issueId));
+  const livingPlan = parseContinuousConfirmPlan(issue?.metadata);
   const {
     enabled: continuousConfirm,
     setEnabled: setContinuousConfirm,
     draft: continuousConfirmDraft,
     setDraft: setContinuousConfirmDraft,
   } = useContinuousConfirmDraftState();
+  useEffect(() => {
+    if (!livingPlan) return;
+    setContinuousConfirmDraft(draftFromPlanOrStorage(livingPlan));
+    setContinuousConfirm(true);
+  }, [livingPlan?.max, livingPlan?.prompt, livingPlan?.doneMarker, livingPlan?.enabled, setContinuousConfirm, setContinuousConfirmDraft]);
   const annotations = useCommentDraftStore((s) => draftKey ? s.getAnnotations(draftKey) : EMPTY_REPLY_ANNOTATIONS);
   const composedContent = useMemo(() => composeAnnotatedReply(content, annotations), [content, annotations]);
   const canSend = !targetMissing && (annotations.length ? hasReplyIntent(content, annotations) : !isEmpty);

@@ -85,11 +85,25 @@ func TestMergeContinuousConfirmBrief(t *testing.T) {
 }
 
 func TestContinuousConfirmHasDoneMarker(t *testing.T) {
-	if !ContinuousConfirmHasDoneMarker("任务好了【连续确认:DONE】", ContinuousConfirmDefaultDoneMarker) {
-		t.Fatal("expected done marker hit")
+	marker := ContinuousConfirmDefaultDoneMarker
+	if !ContinuousConfirmHasDoneMarker("任务好了\n"+marker, marker) {
+		t.Fatal("standalone marker line should count")
 	}
-	if ContinuousConfirmHasDoneMarker("还在做", ContinuousConfirmDefaultDoneMarker) {
-		t.Fatal("false positive")
+	if !ContinuousConfirmHasDoneMarker("任务已彻底完成。"+marker, marker) {
+		t.Fatal("suffix marker after sentence should count")
+	}
+	if ContinuousConfirmHasDoneMarker("还在做", marker) {
+		t.Fatal("false positive on plain text")
+	}
+	// SCS-298: agent explained why it did NOT write the marker — must not stop.
+	if ContinuousConfirmHasDoneMarker("**未写"+marker+"原因**:还有 30 项待做", marker) {
+		t.Fatal("negated mention must not count as done")
+	}
+	if ContinuousConfirmHasDoneMarker("结束标记必须保持为："+marker, marker) {
+		t.Fatal("instructional quote must not count as done")
+	}
+	if ContinuousConfirmHasDoneMarker("请在终评单独一行写出：`"+marker+"`", marker) {
+		t.Fatal("backtick instruction must not count as done")
 	}
 }
 

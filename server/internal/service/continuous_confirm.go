@@ -49,12 +49,13 @@ const ContinuousConfirmDefaultPrompt = `【连续确认 第 {n}/{max} 轮】
 
 ## 退出约定（必须先确认，再写标记）
 对照上面的任务目标逐条自检后，只有下面两种情况才允许结束：
-1. 已 100% 确认目标全部做完 → 在终评明确写出：{done}
+1. 已 100% 确认目标全部做完 → 在终评**单独一行**写出：{done}
 2. 已 100% 确认进入 blocked（没有任何可继续事项，必须等人）→ 设为 blocked，写清缺什么；不要写结束标记
 
 重要：
 - 仅仅把票标成 done / cancelled / in_review **不算结束**。系统会忽略这类状态变更并继续催你确认。
 - 若还有任何可做事项，继续做，**不要**写结束标记，也**不要**误关票。
+- 未结束时禁止在正文里复述结束标记字符串（包括「未写 xxx」这种写法也会干扰检测）。
 - 不要只提问后空等。`
 
 // ContinuousConfirmPlan is the persisted outer-loop state on issue.metadata.
@@ -149,7 +150,8 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 - 若用户本轮补充了新目标，请用 issue metadata 更新 continuous_confirm_brief（合并进任务目标，勿清空旧目标）。
 - continuous_confirm_max 只可调高、不可调低；已完成轮次 continuous_confirm_rounds 不要回退。
 - 结束标记必须保持为：%s
-- 停机条件只有：写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
+- 停机条件只有：在终评单独一行写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
+- 未结束时不要复述结束标记字符串（「未写 xxx」也会被旧逻辑误伤；请直接继续做事）。
 - 不要只说「继续」——每次推进都要贴着任务目标做事；结束前必须 100%% 确认已完成或已真正 blocked。
 `, round, max, body, plan.EffectiveDoneMarker()))
 }
@@ -281,12 +283,56 @@ func truncateRunes(s string, max int) string {
 	return string(r[:max]) + "…"
 }
 
-// ContinuousConfirmHasDoneMarker reports whether text contains the exit marker.
+// ContinuousConfirmHasDoneMarker reports whether the agent intentionally exited
+// with the done marker. A bare strings.Contains is too weak: agents often write
+// 「未写【连续确认:DONE】原因…」or quote the marker in instructions, which used to
+// false-stop the outer loop (SCS-298).
 func ContinuousConfirmHasDoneMarker(text, marker string) bool {
 	if strings.TrimSpace(marker) == "" {
 		marker = ContinuousConfirmDefaultDoneMarker
 	}
-	return marker != "" && strings.Contains(text, marker)
+	if marker == "" || !strings.Contains(text, marker) {
+		return false
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if continuousConfirmLineDeclaresDone(line, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func continuousConfirmLineDeclaresDone(line, marker string) bool {
+	trim := strings.TrimSpace(line)
+	if trim == "" || !strings.Contains(trim, marker) {
+		return false
+	}
+	// Strip common markdown wrappers around a whole-line marker.
+	naked := strings.TrimSpace(strings.Trim(trim, "*_`~\"'"))
+	if naked == marker {
+		return true
+	}
+	if !strings.HasSuffix(trim, marker) && !strings.HasSuffix(naked, marker) {
+		return false
+	}
+	before := strings.TrimSpace(strings.TrimSuffix(trim, marker))
+	if before == "" {
+		return true
+	}
+	// Instruction / negation mentions are not an exit.
+	lower := strings.ToLower(before)
+	deny := []string{
+		"未写", "没写", "不写", "不要写", "勿写", "别写", "不能写", "不会写", "没有写", "尚未写",
+		"未输出", "不输出", "没有输出", "不发送",
+		"结束标记", "保持为", "必须为", "必须保持", "写出：", "写出:", "写上：", "写上:",
+		"do not write", "don't write", "without writing", "not writing", "done marker",
+	}
+	for _, d := range deny {
+		if strings.Contains(lower, strings.ToLower(d)) {
+			return false
+		}
+	}
+	return true
 }
 
 // ContinuousConfirmNeedsIntervention detects hard "must wait for human" phrasing.

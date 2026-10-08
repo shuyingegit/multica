@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -10,6 +11,8 @@ import (
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
+
+var continuousConfirmHandoffRoundRE = regexp.MustCompile(`外循环第\s*(\d+)\s*/`)
 
 // SCS fork: continuous confirm ("连续确认") is an explicit outer-loop plan:
 // user-set max rounds, editable prompt template, accumulated task brief,
@@ -154,12 +157,49 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 
 【续跑计划维护】
 - 本轮结束前，请用 issue metadata **重写** continuous_confirm_brief：整理成简洁任务目标清单（保留用户原意 + 你补充的可执行项），不要只留用户原话聊天句。
-- continuous_confirm_max 只可调高、不可调低；已完成轮次 continuous_confirm_rounds 不要回退。
+- 禁止修改 continuous_confirm_rounds / continuous_confirm_max / continuous_confirm（这三个由系统维护；乱改会导致误判「跑满」提前停机）。
 - 结束标记必须保持为：%s
 - 停机条件只有：在终评单独一行写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
+- 跑满次数 ≠ 任务完成：若目标仍是长期推广/监测，不要写结束标记，等用户加次数即可。
 - 未结束时不要复述结束标记字符串（「未写 xxx」也会被旧逻辑误伤；请直接继续做事）。
 - 不要只说「继续」——每次推进都要贴着任务目标做事；结束前必须 100%% 确认已完成或已真正 blocked。
 `, round, max, body, plan.EffectiveDoneMarker()))
+}
+
+// ContinuousConfirmRoundFromHandoff extracts the server-stamped round from a
+// task handoff note. Agents sometimes overwrite continuous_confirm_rounds with
+// their own "R307" style counters; the handoff value is authoritative for the
+// turn that just finished.
+func ContinuousConfirmRoundFromHandoff(note string) int {
+	m := continuousConfirmHandoffRoundRE.FindStringSubmatch(note)
+	if len(m) < 2 {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
+}
+
+// ContinuousConfirmAgentWritableMeta reports whether an agent (task-token)
+// may write this metadata key. Progress / enable flags are server-owned.
+func ContinuousConfirmAgentWritableMeta(key string) bool {
+	switch key {
+	case ContinuousConfirmBriefMetaKey:
+		return true
+	case ContinuousConfirmMetaKey,
+		ContinuousConfirmRoundsMetaKey,
+		ContinuousConfirmWaitingMetaKey,
+		ContinuousConfirmAgentMetaKey,
+		ContinuousConfirmMaxMetaKey,
+		ContinuousConfirmPromptMetaKey,
+		ContinuousConfirmDoneMarkerMetaKey,
+		ContinuousConfirmFailStreakMetaKey:
+		return false
+	default:
+		return true
+	}
 }
 
 func ContinuousConfirmProgressContent(plan ContinuousConfirmPlan, round, max int) string {

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -181,6 +182,13 @@ func (h *Handler) SetIssueMetadataKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	workspaceID := uuidToString(issue.WorkspaceID)
+	if actorType, _ := h.resolveActor(r, userID, workspaceID); actorType == "agent" &&
+		!service.ContinuousConfirmAgentWritableMeta(key) {
+		writeError(w, http.StatusForbidden,
+			"continuous confirm control keys are server-owned; agents may only update continuous_confirm_brief")
+		return
+	}
 
 	// Enforce the key-count cap in the handler. The DB only guards size,
 	// and a clear 4xx for "too many keys" beats a CHECK violation that
@@ -238,7 +246,6 @@ func (h *Handler) SetIssueMetadataKey(w http.ResponseWriter, r *http.Request) {
 	}
 	h.recordIssueMetadataMutation(r, "set", "changed", issueID, key, queryDuration)
 
-	workspaceID := uuidToString(updated.WorkspaceID)
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	metadata := parseIssueMetadata(updated.Metadata)
 	h.publish(protocol.EventIssueMetadataChanged, workspaceID, actorType, actorID, map[string]any{
@@ -264,6 +271,13 @@ func (h *Handler) DeleteIssueMetadataKey(w http.ResponseWriter, r *http.Request)
 	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
+		return
+	}
+	workspaceID := uuidToString(issue.WorkspaceID)
+	if actorType, _ := h.resolveActor(r, userID, workspaceID); actorType == "agent" &&
+		!service.ContinuousConfirmAgentWritableMeta(key) {
+		writeError(w, http.StatusForbidden,
+			"continuous confirm control keys are server-owned; agents may only update continuous_confirm_brief")
 		return
 	}
 
@@ -309,7 +323,6 @@ func (h *Handler) DeleteIssueMetadataKey(w http.ResponseWriter, r *http.Request)
 	}
 	h.recordIssueMetadataMutation(r, "delete", "changed", issueID, key, queryDuration)
 
-	workspaceID := uuidToString(updated.WorkspaceID)
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	metadata := parseIssueMetadata(updated.Metadata)
 	h.publish(protocol.EventIssueMetadataChanged, workspaceID, actorType, actorID, map[string]any{

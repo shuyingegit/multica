@@ -129,9 +129,14 @@ func (h *Handler) enableContinuousConfirm(
 	case incomingMaxSet:
 		plan.Max = service.ClampContinuousConfirmMax(*payload.Max)
 	case prev.MaxSet:
-		plan.Max = prev.EffectiveMax()
+		plan.Max = service.ClampContinuousConfirmMax(prev.EffectiveMax())
 	default:
 		plan.Max = service.ContinuousConfirmDefaultMax
+	}
+	// Soft-stop keeps old rounds (e.g. 100). Re-opening with a smaller max
+	// must start a fresh budget, otherwise the next completion looks「跑满」.
+	if plan.Rounds >= plan.EffectiveMax() {
+		plan.Rounds = 0
 	}
 	if payload.Prompt != nil {
 		nextPrompt := strings.TrimSpace(*payload.Prompt)
@@ -472,7 +477,23 @@ func (h *Handler) maybeContinueContinuousConfirm(ctx context.Context, task *db.A
 	}
 
 	max := plan.EffectiveMax()
-	next := plan.Rounds + 1
+	// Prefer the round stamped into this task's handoff. Agents on long promo
+	// tickets often rewrite continuous_confirm_rounds to their own R-number
+	// (e.g. 102) while max was reset to 20 — that false-triggers「跑满」(SCS-298).
+	rounds := plan.Rounds
+	if task.HandoffNote.Valid {
+		if stamped := service.ContinuousConfirmRoundFromHandoff(task.HandoffNote.String); stamped > 0 {
+			if rounds != stamped {
+				slog.Info("continuous confirm: ignoring stomped rounds metadata",
+					"issue_id", uuidToString(issue.ID),
+					"metadata_rounds", rounds, "handoff_round", stamped, "max", max)
+				rounds = stamped
+				plan.Rounds = stamped
+				h.setContinuousConfirmMeta(ctx, issue, plan)
+			}
+		}
+	}
+	next := rounds + 1
 	if next > max {
 		h.disableContinuousConfirm(ctx, issue)
 		h.postContinuousConfirmSystemComment(ctx, issue, service.ContinuousConfirmStoppedMaxContent(max))
@@ -671,6 +692,7 @@ func (h *Handler) UpdateContinuousConfirmPlan(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusConflict, "continuous confirm plan is not active")
 		return
 	}
+	wasEnabled := plan.Enabled
 	plan.Enabled = true
 	if req.Max != nil {
 		plan.Max = service.MergeContinuousConfirmMax(plan.EffectiveMax(), *req.Max, true)
@@ -690,6 +712,14 @@ func (h *Handler) UpdateContinuousConfirmPlan(w http.ResponseWriter, r *http.Req
 	}
 	if req.Brief != nil {
 		plan.Brief = strings.TrimSpace(*req.Brief)
+	}
+	// Soft-stop keeps rounds; re-enable / max clamp must not inherit a stomped
+	// counter that already sits at/above the budget (SCS-298 false「跑满」).
+	if !wasEnabled {
+		plan.Rounds = 0
+	}
+	if plan.Rounds >= plan.EffectiveMax() {
+		plan.Rounds = 0
 	}
 	if issue.Status == "done" || issue.Status == "cancelled" {
 		issue = h.reopenIssueForContinuousConfirm(r.Context(), issue, "")
@@ -732,6 +762,9 @@ func (h *Handler) FireContinuousConfirmPlan(w http.ResponseWriter, r *http.Reque
 	}
 	plan.Enabled = true
 	plan.Waiting = false
+	if plan.Rounds >= plan.EffectiveMax() {
+		plan.Rounds = 0
+	}
 	h.setContinuousConfirmMeta(r.Context(), issue, plan)
 
 	note := service.ContinuousConfirmHandoffNote(plan) + "\n\n【立即触发】用户要求立刻按当前续跑计划推进。"

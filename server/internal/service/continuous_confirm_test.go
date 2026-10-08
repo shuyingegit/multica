@@ -156,6 +156,35 @@ func TestContinuousConfirmNeedsIntervention(t *testing.T) {
 	}
 }
 
+func TestContinuousConfirmRoundFromHandoff(t *testing.T) {
+	note := `[连续确认 / continuous confirm — 外循环第 7/20 轮]
+请继续`
+	if got := ContinuousConfirmRoundFromHandoff(note); got != 7 {
+		t.Fatalf("got %d want 7", got)
+	}
+	if ContinuousConfirmRoundFromHandoff("no stamp here") != 0 {
+		t.Fatal("expected 0 for missing stamp")
+	}
+}
+
+func TestContinuousConfirmAgentWritableMeta(t *testing.T) {
+	if !ContinuousConfirmAgentWritableMeta(ContinuousConfirmBriefMetaKey) {
+		t.Fatal("brief must stay writable")
+	}
+	if ContinuousConfirmAgentWritableMeta(ContinuousConfirmRoundsMetaKey) {
+		t.Fatal("rounds must be server-owned")
+	}
+	if ContinuousConfirmAgentWritableMeta(ContinuousConfirmMaxMetaKey) {
+		t.Fatal("max must be server-owned")
+	}
+	if ContinuousConfirmAgentWritableMeta(ContinuousConfirmMetaKey) {
+		t.Fatal("enable flag must be server-owned")
+	}
+	if !ContinuousConfirmAgentWritableMeta("pipeline_status") {
+		t.Fatal("unrelated keys stay writable")
+	}
+}
+
 func TestContinuousConfirmShouldReopenDone(t *testing.T) {
 	marker := ContinuousConfirmDefaultDoneMarker
 	if !ContinuousConfirmShouldReopenPrematureClose("done", "还在推广", marker) {

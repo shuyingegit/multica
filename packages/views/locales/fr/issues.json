@@ -691,7 +691,10 @@
     "continuous_confirm_fire_failed": "Échec du déclenchement",
     "continuous_confirm_stopped": "Plan arrêté",
     "continuous_confirm_stop_failed": "Échec de l’arrêt",
-    "continuous_confirm_stop": "Arrêter"
+    "continuous_confirm_stop": "Arrêter",
+    "continuous_confirm_mode_preview": "Aperçu",
+    "continuous_confirm_mode_edit": "Modifier",
+    "continuous_confirm_max_range": "Autorisé {{floor}}–{{absolute}} (pas en dessous de la progression)."
   },
   "reply": {
     "placeholder": "Laisser une réponse...",

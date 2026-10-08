@@ -672,7 +672,10 @@
     "continuous_confirm_fire_failed": "즉시 실행 실패",
     "continuous_confirm_stopped": "계획이 중지되었습니다",
     "continuous_confirm_stop_failed": "계획 중지 실패",
-    "continuous_confirm_stop": "중지"
+    "continuous_confirm_stop": "중지",
+    "continuous_confirm_mode_preview": "미리보기",
+    "continuous_confirm_mode_edit": "편집",
+    "continuous_confirm_max_range": "{{floor}}–{{absolute}} (현재 진행보다 낮출 수 없음)."
   },
   "reply": {
     "placeholder": "답글 남기기...",

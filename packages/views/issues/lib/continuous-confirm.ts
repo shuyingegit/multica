@@ -51,6 +51,28 @@ export function clampContinuousConfirmMax(n: number): number {
   return Math.min(CONTINUOUS_CONFIRM_ABSOLUTE_MAX, Math.max(1, Math.floor(n)));
 }
 
+/**
+ * Parse a max-rounds draft while the user is typing. Empty / partial input
+ * stays as-is so the field does not snap back on every keystroke. Callers
+ * clamp with {@link resolveContinuousConfirmMaxInput} on blur / save.
+ */
+export function sanitizeContinuousConfirmMaxDraft(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed === "") return "";
+  // Allow only digits while editing (no decimals / signs).
+  if (!/^\d+$/.test(trimmed)) return trimmed.replace(/\D/g, "");
+  return trimmed;
+}
+
+/** Finalize a typed max against absolute bounds and an optional floor (active plan). */
+export function resolveContinuousConfirmMaxInput(raw: string, floor = 1): number {
+  const digits = sanitizeContinuousConfirmMaxDraft(raw);
+  if (digits === "") return Math.max(1, floor);
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return Math.max(1, floor);
+  return Math.max(floor, clampContinuousConfirmMax(n));
+}
+
 /** Max only rises while a plan is active. */
 export function mergeContinuousConfirmMax(prev: number, incoming: number): number {
   return Math.max(clampContinuousConfirmMax(prev), clampContinuousConfirmMax(incoming));

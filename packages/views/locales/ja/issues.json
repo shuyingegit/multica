@@ -672,7 +672,10 @@
     "continuous_confirm_fire_failed": "即時実行に失敗しました",
     "continuous_confirm_stopped": "計画を停止しました",
     "continuous_confirm_stop_failed": "計画の停止に失敗しました",
-    "continuous_confirm_stop": "停止"
+    "continuous_confirm_stop": "停止",
+    "continuous_confirm_mode_preview": "プレビュー",
+    "continuous_confirm_mode_edit": "編集",
+    "continuous_confirm_max_range": "{{floor}}〜{{absolute}}（進捗未満にはできません）。"
   },
   "reply": {
     "placeholder": "返信を残す...",

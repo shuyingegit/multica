@@ -18,8 +18,9 @@ import {
   CONTINUOUS_CONFIRM_ABSOLUTE_MAX,
   CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
   CONTINUOUS_CONFIRM_DEFAULT_PROMPT,
-  clampContinuousConfirmMax,
   loadContinuousConfirmDraft,
+  resolveContinuousConfirmMaxInput,
+  sanitizeContinuousConfirmMaxDraft,
   saveContinuousConfirmDraft,
   type ContinuousConfirmDraft,
 } from "../lib/continuous-confirm";
@@ -41,14 +42,17 @@ export function ContinuousConfirmControls({
   const { t } = useT("issues");
   const [open, setOpen] = useState(false);
   const [local, setLocal] = useState(draft);
+  const [maxDraft, setMaxDraft] = useState(String(draft.max));
 
   useEffect(() => {
-    if (open) setLocal(draft);
+    if (!open) return;
+    setLocal(draft);
+    setMaxDraft(String(draft.max));
   }, [open, draft]);
 
   const apply = () => {
     const next: ContinuousConfirmDraft = {
-      max: clampContinuousConfirmMax(local.max),
+      max: resolveContinuousConfirmMaxInput(maxDraft, 1),
       prompt: local.prompt.trim() || CONTINUOUS_CONFIRM_DEFAULT_PROMPT,
       doneMarker: local.doneMarker.trim() || CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
     };
@@ -63,6 +67,7 @@ export function ContinuousConfirmControls({
       prompt: CONTINUOUS_CONFIRM_DEFAULT_PROMPT,
       doneMarker: CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
     });
+    setMaxDraft("20");
   };
 
   return (
@@ -93,7 +98,7 @@ export function ContinuousConfirmControls({
         >
           <Settings2 className="size-3.5" />
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] space-y-3 p-3">
+        <PopoverContent align="end" className="w-[min(28rem,calc(100vw-1.5rem))] space-y-3 p-3">
           <PopoverTitle className="text-sm font-medium">
             {t(($) => $.comment.continuous_confirm_settings)}
           </PopoverTitle>
@@ -106,17 +111,20 @@ export function ContinuousConfirmControls({
             </Label>
             <Input
               id="cc-max"
-              type="number"
-              min={1}
-              max={CONTINUOUS_CONFIRM_ABSOLUTE_MAX}
-              value={local.max}
-              onChange={(e) =>
-                setLocal((d) => ({
-                  ...d,
-                  max: clampContinuousConfirmMax(Number(e.target.value)),
-                }))
-              }
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="off"
+              value={maxDraft}
+              onChange={(e) => setMaxDraft(sanitizeContinuousConfirmMaxDraft(e.target.value))}
+              onBlur={() => setMaxDraft(String(resolveContinuousConfirmMaxInput(maxDraft, 1)))}
             />
+            <p className="text-caption text-muted-foreground">
+              {t(($) => $.comment.continuous_confirm_max_range, {
+                floor: 1,
+                absolute: CONTINUOUS_CONFIRM_ABSOLUTE_MAX,
+              })}
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cc-done" className="text-caption">

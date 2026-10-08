@@ -691,7 +691,10 @@
     "continuous_confirm_fire_failed": "Failed to fire plan",
     "continuous_confirm_stopped": "Plan stopped",
     "continuous_confirm_stop_failed": "Failed to stop plan",
-    "continuous_confirm_stop": "Stop plan"
+    "continuous_confirm_stop": "Stop plan",
+    "continuous_confirm_mode_preview": "Preview",
+    "continuous_confirm_mode_edit": "Edit",
+    "continuous_confirm_max_range": "Allowed {{floor}}–{{absolute}} (cannot go below current progress)."
   },
   "reply": {
     "placeholder": "Leave a reply...",

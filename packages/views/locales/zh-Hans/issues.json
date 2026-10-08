@@ -672,7 +672,10 @@
     "continuous_confirm_fire_failed": "立即触发失败",
     "continuous_confirm_stopped": "续跑计划已停止",
     "continuous_confirm_stop_failed": "停止续跑失败",
-    "continuous_confirm_stop": "停止续跑"
+    "continuous_confirm_stop": "停止续跑",
+    "continuous_confirm_mode_preview": "预览",
+    "continuous_confirm_mode_edit": "编辑",
+    "continuous_confirm_max_range": "可填 {{floor}}–{{absolute}}（不能低于当前进度）。"
   },
   "reply": {
     "placeholder": "回复...",

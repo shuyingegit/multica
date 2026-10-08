@@ -641,6 +641,8 @@
     },
     "recipient_steer": "Ajouter à l'exécution en cours",
     "recipient_steer_desc": "{{name}} le lit après l'étape en cours et poursuit la tâche d'origine. Texte uniquement.",
+    "recipient_steer_unavailable_attachments": "L'ajout en cours d'exécution n'accepte que du texte ; retirez les pièces jointes, ou choisissez « Démarrer après cette exécution ».",
+    "recipient_steer_unavailable_unsupported": "Cette exécution n'accepte pas d'entrée en cours (fréquent avec Cursor, ou Claude/Codex trop ancien). Utilisez « Démarrer après cette exécution » ou « Arrêter et recommencer ».",
     "recipient_after_run": "Démarrer après cette exécution",
     "recipient_after_run_desc": "N'interrompt pas l'exécution en cours ; traité ensuite dans une nouvelle exécution.",
     "recipient_restart": "Arrêter et recommencer",

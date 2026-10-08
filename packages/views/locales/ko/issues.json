@@ -623,6 +623,8 @@
     },
     "recipient_steer": "현재 실행에 추가",
     "recipient_steer_desc": "{{name}}이(가) 현재 단계가 끝난 뒤 읽고 원래 작업을 계속합니다. 텍스트만 가능합니다.",
+    "recipient_steer_unavailable_attachments": "실행 중 추가는 텍스트만 가능합니다. 첨부파일을 제거하거나 「이번 실행 후 시작」을 선택하세요.",
+    "recipient_steer_unavailable_unsupported": "이 실행은 중간 입력을 받을 수 없습니다(Cursor runtime 또는 오래된 Claude/Codex에서 흔함). 「이번 실행 후 시작」 또는 「중지 후 다시 시작」을 사용하세요.",
     "recipient_after_run": "이번 실행 후 시작",
     "recipient_after_run_desc": "현재 실행을 방해하지 않고, 끝난 뒤 새 실행에서 처리합니다.",
     "recipient_restart": "중지하고 다시 시작",

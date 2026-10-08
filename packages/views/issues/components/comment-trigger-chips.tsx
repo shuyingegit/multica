@@ -259,6 +259,18 @@ function RecipientActionMenu({
           value={entry.action}
           onValueChange={(value) => onActionChange(entry.agent.id, value as RecipientAction)}
         >
+          {entry.steerUnavailable && (
+            <DropdownMenuRadioItem value="steer" disabled className="items-start py-1.5">
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span>{t(($) => $.comment.recipient_steer)}</span>
+                <span className="text-caption text-muted-foreground">
+                  {entry.steerUnavailable === "attachments"
+                    ? t(($) => $.comment.recipient_steer_unavailable_attachments)
+                    : t(($) => $.comment.recipient_steer_unavailable_unsupported)}
+                </span>
+              </span>
+            </DropdownMenuRadioItem>
+          )}
           {entry.actions.map((action) => {
             const description = actionDescription(action, entry, presenceLine, t);
             return (

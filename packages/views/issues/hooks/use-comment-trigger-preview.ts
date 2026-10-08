@@ -125,10 +125,11 @@ export function useCommentTriggerPreview({
         : undefined,
   });
 
-  // Loading and errors intentionally surface as "no agents": the preview is
-  // an enhancement, and the composer renders nothing for an empty list.
-  if (signature === "empty" || debouncedSignature === "empty") {
-    return { agents: [], blocked: [], hasAllMembersMention, isCurrent: signature === "empty" };
+  // Empty drafts clear chips. While the first keystrokes are still debouncing
+  // (signature nonempty, debounced still "empty"), keep showing the last
+  // preview if any — wiping to [] made the bottom-left options flicker away.
+  if (signature === "empty") {
+    return { agents: [], blocked: [], hasAllMembersMention, isCurrent: true };
   }
 
   return {

@@ -641,6 +641,8 @@
     },
     "recipient_steer": "Add to current run",
     "recipient_steer_desc": "{{name}} reads it after the current step and keeps working on the original task. Text only.",
+    "recipient_steer_unavailable_attachments": "Add-to-run is text-only; remove attachments, or choose “Start after this run”.",
+    "recipient_steer_unavailable_unsupported": "This run cannot take mid-turn input (common with Cursor runtimes, or Claude/Codex below the required version). Use “Start after this run” or “Stop and start over”.",
     "recipient_after_run": "Start after this run",
     "recipient_after_run_desc": "Doesn't interrupt the current run; it's handled in a new run afterwards.",
     "recipient_restart": "Stop and start over",

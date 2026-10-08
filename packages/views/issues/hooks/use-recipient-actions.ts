@@ -19,11 +19,16 @@ const NO_TASKS: AgentTask[] = [];
 const ACTIVE_STATUSES = new Set<AgentTask["status"]>(["queued", "deferred", "dispatched", "waiting_local_directory", "running"]);
 const NO_CHOICES: Record<string, RecipientAction> = {};
 
+/** Why "steer into the current run" is shown but not selectable. */
+export type SteerUnavailableReason = "attachments" | "unsupported";
+
 export interface RecipientEntry {
   agent: CommentTriggerPreviewAgent;
   state: AgentRunState;
   action: RecipientAction;
   actions: RecipientAction[];
+  /** Present when the agent is running but steer cannot be chosen. */
+  steerUnavailable?: SteerUnavailableReason;
 }
 
 /**
@@ -92,11 +97,19 @@ export function useRecipientActions({
       canRestart: allowSteer,
       steerByDefault: state.kind === "running" && steerByDefault(state.task),
     };
+    const actions = recipientActions(state, opts);
+    let steerUnavailable: SteerUnavailableReason | undefined;
+    // Keep the preferred action visible (disabled) so the menu does not look
+    // like it randomly lost "插话/Add to current run" when the turn cannot take it.
+    if (allowSteer && state.kind === "running" && !actions.includes("steer")) {
+      steerUnavailable = hasAttachments ? "attachments" : "unsupported";
+    }
     return {
       agent,
       state,
       action: resolveRecipientAction(state, chosen[agent.id], opts),
-      actions: recipientActions(state, opts),
+      actions,
+      steerUnavailable,
     };
   }), [agents, tasks, chosen, allowSteer, hasAttachments, steerByDefault]);
 

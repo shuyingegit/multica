@@ -95,6 +95,28 @@ describe("CommentTriggerChips", () => {
     expect(onActionChange).toHaveBeenCalledWith("agent-1", "after_run");
   });
 
+  it("keeps Add-to-current-run visible but disabled when the turn cannot take it", async () => {
+    const busy: AgentRunState = { kind: "running", task: turn("running"), steerable: false };
+    const opts = { canSteer: true, canRestart: true, steerByDefault: true };
+    const recipients: RecipientEntry[] = [{
+      agent: walt,
+      state: busy,
+      action: resolveRecipientAction(busy, undefined, opts),
+      actions: recipientActions(busy, opts),
+      steerUnavailable: "unsupported",
+    }];
+    renderWithI18n(<CommentTriggerChips recipients={recipients} onActionChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /Walt trigger:/ }));
+    const menu = await screen.findByRole("menu");
+    const steer = within(menu).getByRole("menuitemradio", { name: /Add to current run/ });
+    expect(steer).toHaveAttribute("aria-disabled", "true");
+    expect(within(menu).getByText(/cannot take mid-turn input/i)).toBeInTheDocument();
+    const afterRun = within(menu).getAllByRole("menuitemradio").find((el) =>
+      /^Start after this run/.test(el.textContent ?? ""));
+    expect(afterRun).toBeTruthy();
+    expect(afterRun).not.toHaveAttribute("aria-disabled", "true");
+  });
+
   it("folds a message into a queued run instead of starting another", () => {
     const queued: AgentRunState = { kind: "queued", task: turn("queued") };
     renderWithI18n(<CommentTriggerChips recipients={[entry(walt, queued)]} onActionChange={vi.fn()} />);

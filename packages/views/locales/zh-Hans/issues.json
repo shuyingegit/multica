@@ -623,6 +623,8 @@
     },
     "recipient_steer": "插话到当前运行",
     "recipient_steer_desc": "{{name}} 会在当前步骤结束后读到，并继续完成原任务。仅支持文字。",
+    "recipient_steer_unavailable_attachments": "插话只支持文字；请去掉附件，或选「本轮结束后开始」。",
+    "recipient_steer_unavailable_unsupported": "本轮运行不支持插话（常见于 Cursor runtime，或 Claude/Codex 版本过旧）。可用「本轮结束后开始」或「停止并重新开始」。",
     "recipient_after_run": "本轮结束后开始",
     "recipient_after_run_desc": "不打断当前运行，结束后作为新一轮处理。",
     "recipient_restart": "停止并重新开始",

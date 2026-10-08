@@ -623,6 +623,8 @@
     },
     "recipient_steer": "現在の実行に追加",
     "recipient_steer_desc": "{{name}} は現在のステップの後に読み、元のタスクを続けます。テキストのみ。",
+    "recipient_steer_unavailable_attachments": "実行中の追加はテキストのみです。添付を外すか、「この実行の後に開始」を選んでください。",
+    "recipient_steer_unavailable_unsupported": "この実行は途中入力に対応していません（Cursor runtime や古い Claude/Codex でよくあります）。「この実行の後に開始」か「停止してやり直す」を使ってください。",
     "recipient_after_run": "この実行の後に開始",
     "recipient_after_run_desc": "現在の実行は止めず、終了後に新しい実行で扱います。",
     "recipient_restart": "停止してやり直す",

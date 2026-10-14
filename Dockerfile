@@ -1,5 +1,5 @@
 # --- Build stage ---
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.9-alpine AS builder
 
 RUN apk add --no-cache git
 
@@ -29,7 +29,7 @@ RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
     UV="${UPSTREAM_VERSION}"; \
     if [ -z "$$UV" ] && [ -f UPSTREAM_BASE ]; then UV=$$(tr -d '[:space:]' < UPSTREAM_BASE); fi; \
-    cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE} -X main.upstreamVersion=$${UV}" -o bin/multica ./cmd/multica
+    cd server && CGO_ENABLED=0 go build -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildCommit=${COMMIT} -X main.date=${DATE} -X main.upstreamVersion=$${UV}" -o bin/multica ./cmd/multica
 RUN --mount=type=cache,id=multica-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=multica-go-build,target=/root/.cache/go-build \
     cd server && CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/migrate ./cmd/migrate

@@ -7,7 +7,7 @@
 - 上游仓库：https://github.com/multica-ai/multica  
 - 官方文档：https://multica.ai/docs  
 - 自部署说明：见上游 `SELF_HOSTING.md`  
-- 当前同步基线：见仓库根目录 `UPSTREAM_BASE`（现为 `43b0571f9`，含官方 `v0.6.0`）
+- 当前同步基线：见仓库根目录 `UPSTREAM_BASE`（现为 `52b26900c`（官方 main 最新；含 changelog 所述 `v0.6.2`，标签尚未打；已同步过 `v0.6.1`））
 
 ---
 
@@ -102,3 +102,4 @@ Chat 会话级分享表已预留（`chat_session_public_share`），入口与页
 
 - Fork：https://github.com/shuyingegit/multica  
 - 上游：https://github.com/multica-ai/multica  
+

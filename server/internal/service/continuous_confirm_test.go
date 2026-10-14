@@ -93,6 +93,34 @@ func TestMergeContinuousConfirmBrief(t *testing.T) {
 	}
 }
 
+func TestMergeContinuousConfirmBriefAccumulatesOpinions(t *testing.T) {
+	// First long requirement, then a later supplement — both must remain.
+	first := "第一批需求：\n\n1. 长期推广 WebDAV\n2. 国区/海外定价红线禁止混写"
+	got := MergeContinuousConfirmBrief("", first)
+	second := "再补：各个网站的小铃铛/留言要认真答复，站点警告不能不管"
+	got = MergeContinuousConfirmBrief(got, second)
+	if !strings.Contains(got, second) {
+		t.Fatalf("newest opinion missing: %q", got)
+	}
+	if !strings.Contains(got, "第一批需求") || !strings.Contains(got, "定价红线") {
+		t.Fatalf("earlier opinion discarded: %q", got)
+	}
+	if !strings.Contains(got, ContinuousConfirmOpinionLogHeader) {
+		t.Fatalf("expected opinion log section: %q", got)
+	}
+	// Newest should appear in 最新 before the log copy of the older batch.
+	idxNew := strings.Index(got, second)
+	idxOld := strings.Index(got, "第一批需求")
+	if idxNew < 0 || idxOld < 0 || idxNew > idxOld {
+		t.Fatalf("newest should sort above older opinion: %q", got)
+	}
+	third := "又补：汇报格式要清晰可读"
+	got = MergeContinuousConfirmBrief(got, third)
+	if !strings.Contains(got, first) || !strings.Contains(got, second) || !strings.Contains(got, third) {
+		t.Fatalf("three supplements must all survive: %q", truncateForTest(got, 400))
+	}
+}
+
 func TestMergeContinuousConfirmBriefPrefersLatestOverTruncate(t *testing.T) {
 	// Old append-at-end + truncate dropped new user text when agent status filled the budget.
 	fat := strings.Repeat("R540 进度占位 ", 400) // well over brief max once merged

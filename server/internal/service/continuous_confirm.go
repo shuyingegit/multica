@@ -50,6 +50,7 @@ const (
 	// Structured brief sections — user goals must survive agent rewrites.
 	ContinuousConfirmUserGoalsHeader   = "## 用户目标"
 	ContinuousConfirmLatestHeader      = "### 最新用户意见"
+	ContinuousConfirmOpinionLogHeader  = "### 用户意见记录"
 	ContinuousConfirmAgentSectionMark  = "【Agent整理】"
 	ContinuousConfirmAgentSectionAlt   = "## Agent整理"
 )
@@ -163,9 +164,9 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 
 【续跑计划维护】
 - continuous_confirm_brief 是**整张票唯一**的续跑目标状态。结构固定为：
-  1. 「## 用户目标」（含「### 最新用户意见」）——用户原意与后续补充，**禁止删除或覆盖**
+  1. 「## 用户目标」（含「### 最新用户意见」+「### 用户意见记录」）——历次用户补充会累计保留，**禁止删除或覆盖**
   2. 「【Agent整理】」——你可只改这一段，写成当前进度/下一步，不要把用户目标冲掉
-- 本轮结束前可用 metadata 更新 brief，但必须保留「用户目标」全文；系统也会在写入时强制保留。
+- 本轮结束前可用 metadata 更新 brief，但必须保留「用户目标」全文（含意见记录）；系统也会在写入时强制保留。
 - 禁止修改 continuous_confirm_rounds / continuous_confirm_max / continuous_confirm（这三个由系统维护；乱改会导致误判「跑满」提前停机）。
 - 结束标记必须保持为：%s
 - 停机条件只有：在终评单独一行写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
@@ -472,8 +473,9 @@ func MergeContinuousConfirmMax(prevEffective int, incoming int, incomingSet bool
 }
 
 // MergeContinuousConfirmBrief folds a new user supplement into the plan brief.
-// Latest user opinion is placed at the top of the user-goals section so it is
-// never lost to truncation (old append-at-end + truncate chopped supplements).
+// Newest opinion stays under「最新用户意见」; earlier supplements are moved into
+// 「用户意见记录」(newest-first), never discarded — SCS-268/298: users kept
+// losing the first batch of requirements when a later comment arrived.
 func MergeContinuousConfirmBrief(prev, addition string) string {
 	addition = strings.TrimSpace(addition)
 	if addition == "" {
@@ -490,34 +492,93 @@ func MergeContinuousConfirmBrief(prev, addition string) string {
 	if userPart != "" && strings.Contains(userPart, addition) {
 		return ComposeContinuousConfirmBrief(userPart, agentPart)
 	}
-	latest := ContinuousConfirmLatestHeader + "\n" + addition
-	var nextUser string
-	if userPart == "" {
-		nextUser = ContinuousConfirmUserGoalsHeader + "\n" + latest
-	} else {
-		body := userPart
-		if strings.HasPrefix(body, ContinuousConfirmUserGoalsHeader) {
-			body = strings.TrimSpace(strings.TrimPrefix(body, ContinuousConfirmUserGoalsHeader))
+
+	prevLatest, rest := splitContinuousConfirmLatestOpinion(userPart)
+	rest = mergeContinuousConfirmOpinionLog(rest, prevLatest)
+
+	var b strings.Builder
+	b.WriteString(ContinuousConfirmUserGoalsHeader)
+	b.WriteString("\n")
+	b.WriteString(ContinuousConfirmLatestHeader)
+	b.WriteString("\n")
+	b.WriteString(addition)
+	if rest != "" {
+		b.WriteString("\n\n")
+		b.WriteString(rest)
+	}
+	return ComposeContinuousConfirmBrief(b.String(), agentPart)
+}
+
+// splitContinuousConfirmLatestOpinion pulls the full「最新用户意见」block
+// (until the next ##/### heading). Unlike the old "first blank line" cut, this
+// keeps multi-paragraph user text intact when relocating it into the opinion log.
+func splitContinuousConfirmLatestOpinion(userPart string) (latest, rest string) {
+	body := strings.TrimSpace(userPart)
+	if body == "" {
+		return "", ""
+	}
+	if strings.HasPrefix(body, ContinuousConfirmUserGoalsHeader) {
+		body = strings.TrimSpace(strings.TrimPrefix(body, ContinuousConfirmUserGoalsHeader))
+	}
+	i := strings.Index(body, ContinuousConfirmLatestHeader)
+	if i < 0 {
+		return "", body
+	}
+	before := strings.TrimSpace(body[:i])
+	afterHdr := body[i+len(ContinuousConfirmLatestHeader):]
+	end := len(afterHdr)
+	for idx := 0; idx < len(afterHdr); idx++ {
+		if afterHdr[idx] != '\n' {
+			continue
 		}
-		// Drop a previous "最新用户意见" block so we only keep one latest.
-		if i := strings.Index(body, ContinuousConfirmLatestHeader); i >= 0 {
-			after := body[i+len(ContinuousConfirmLatestHeader):]
-			// Skip until blank line after previous latest, then keep the rest as history.
-			rest := after
-			if j := strings.Index(after, "\n\n"); j >= 0 {
-				rest = after[j+2:]
-			} else {
-				rest = ""
-			}
-			body = strings.TrimSpace(rest)
-		}
-		if body != "" {
-			nextUser = ContinuousConfirmUserGoalsHeader + "\n" + latest + "\n\n" + body
-		} else {
-			nextUser = ContinuousConfirmUserGoalsHeader + "\n" + latest
+		line := afterHdr[idx+1:]
+		if strings.HasPrefix(line, "### ") || strings.HasPrefix(line, "## ") {
+			end = idx
+			break
 		}
 	}
-	return ComposeContinuousConfirmBrief(nextUser, agentPart)
+	latest = strings.TrimSpace(afterHdr[:end])
+	after := strings.TrimSpace(afterHdr[end:])
+	switch {
+	case before != "" && after != "":
+		rest = before + "\n\n" + after
+	case before != "":
+		rest = before
+	default:
+		rest = after
+	}
+	return latest, strings.TrimSpace(rest)
+}
+
+// mergeContinuousConfirmOpinionLog prepends a previous「最新」block into the
+// durable opinion log so successive user supplements accumulate.
+func mergeContinuousConfirmOpinionLog(rest, prevLatest string) string {
+	prevLatest = strings.TrimSpace(prevLatest)
+	rest = strings.TrimSpace(rest)
+	if prevLatest == "" {
+		return rest
+	}
+	if rest != "" && strings.Contains(rest, prevLatest) {
+		return rest
+	}
+	hdr := ContinuousConfirmOpinionLogHeader
+	if i := strings.Index(rest, hdr); i >= 0 {
+		head := strings.TrimSpace(rest[:i])
+		tail := strings.TrimSpace(rest[i+len(hdr):])
+		logBody := prevLatest
+		if tail != "" {
+			logBody = prevLatest + "\n\n---\n\n" + tail
+		}
+		out := hdr + "\n" + logBody
+		if head != "" {
+			return head + "\n\n" + out
+		}
+		return out
+	}
+	if rest == "" {
+		return hdr + "\n" + prevLatest
+	}
+	return hdr + "\n" + prevLatest + "\n\n" + rest
 }
 
 // ContinuousConfirmCommentHasSubstance is true when a member comment carries

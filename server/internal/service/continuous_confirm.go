@@ -163,8 +163,8 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 
 【续跑计划维护】
 - continuous_confirm_brief 是**整张票唯一**的续跑目标状态。结构固定为：
-  1. `## 用户目标`（含 `### 最新用户意见`）——用户原意与后续补充，**禁止删除或覆盖**
-  2. `【Agent整理】`——你可只改这一段，写成当前进度/下一步，不要把用户目标冲掉
+  1. 「## 用户目标」（含「### 最新用户意见」）——用户原意与后续补充，**禁止删除或覆盖**
+  2. 「【Agent整理】」——你可只改这一段，写成当前进度/下一步，不要把用户目标冲掉
 - 本轮结束前可用 metadata 更新 brief，但必须保留「用户目标」全文；系统也会在写入时强制保留。
 - 禁止修改 continuous_confirm_rounds / continuous_confirm_max / continuous_confirm（这三个由系统维护；乱改会导致误判「跑满」提前停机）。
 - 结束标记必须保持为：%s

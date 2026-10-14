@@ -220,3 +220,30 @@ export function renderContinuousConfirmPrompt(
     .replaceAll("{brief}", b)
     .trim();
 }
+
+/**
+ * One-line status-bar snippet: prefer「最新用户意见」so the strip tracks the
+ * user's latest intent instead of an old header / agent polish.
+ */
+export function summarizeContinuousConfirmBrief(brief: string, maxLen = 80): string {
+  const raw = brief.trim();
+  if (!raw) return "";
+  const latestHeader = "### 最新用户意见";
+  let focus = raw;
+  const latestIdx = raw.indexOf(latestHeader);
+  if (latestIdx >= 0) {
+    let rest = raw.slice(latestIdx + latestHeader.length).trim();
+    // Stop before the next heading / agent section so we don't leak polish text.
+    rest = rest.split(/\n(?=#{1,3}\s|【Agent整理】|## Agent整理)/)[0]?.trim() || rest;
+    if (rest) focus = rest;
+  } else {
+    // Drop leading structural headers for legacy briefs.
+    focus = raw
+      .replace(/^##\s*用户目标\s*/m, "")
+      .replace(/^【Agent整理】\s*/m, "")
+      .trim();
+  }
+  const flat = focus.replace(/\s+/g, " ").trim();
+  if (flat.length <= maxLen) return flat;
+  return flat.slice(0, Math.max(0, maxLen - 1)) + "…";
+}

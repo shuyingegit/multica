@@ -31,6 +31,7 @@ import {
   resolveContinuousConfirmMaxInput,
   sanitizeContinuousConfirmMaxDraft,
   saveContinuousConfirmDraft,
+  summarizeContinuousConfirmBrief,
 } from "../lib/continuous-confirm";
 
 type Props = {
@@ -194,7 +195,7 @@ export function ContinuousConfirmStatus({ issue }: Props) {
             <p className="truncate text-muted-foreground">
               {plan.brief
                 ? t(($) => $.comment.continuous_confirm_brief_preview, {
-                    brief: plan.brief.replace(/\s+/g, " ").slice(0, 80),
+                    brief: summarizeContinuousConfirmBrief(plan.brief),
                   })
                 : t(($) => $.comment.continuous_confirm_done_hint, { marker: plan.doneMarker })}
             </p>
@@ -274,8 +275,9 @@ export function ContinuousConfirmStatus({ issue }: Props) {
                 </div>
                 <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/30 p-3">
                   <Label>{t(($) => $.comment.continuous_confirm_preview)}</Label>
-                  <div className="max-h-[min(50dvh,28rem)] overflow-y-auto overscroll-contain rounded-md border border-border/40 bg-background/60 px-3 py-2">
-                    <RichContent content={previewText} density="compact" phase="settled" />
+                  <div className="max-h-[min(50dvh,28rem)] overflow-y-auto overscroll-contain rounded-md border border-border/40 bg-background px-4 py-3 text-sm leading-relaxed">
+                    {/* document density: headings/lists get full prose spacing in the plan preview */}
+                    <RichContent content={previewText} density="document" phase="settled" />
                   </div>
                   <p className="text-caption text-muted-foreground">
                     {t(($) => $.comment.continuous_confirm_preview_help)}

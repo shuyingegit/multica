@@ -21,6 +21,7 @@ import type { Issue } from "@multica/core/types";
 import { toast } from "sonner";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../i18n";
+import { RichContent } from "../../rich-content";
 import {
   CONTINUOUS_CONFIRM_ABSOLUTE_MAX,
   CONTINUOUS_CONFIRM_DEFAULT_DONE_MARKER,
@@ -273,9 +274,9 @@ export function ContinuousConfirmStatus({ issue }: Props) {
                 </div>
                 <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/30 p-3">
                   <Label>{t(($) => $.comment.continuous_confirm_preview)}</Label>
-                  <pre className="max-h-[min(50dvh,28rem)] overflow-y-auto whitespace-pre-wrap break-words text-caption leading-relaxed text-foreground/90">
-                    {previewText}
-                  </pre>
+                  <div className="max-h-[min(50dvh,28rem)] overflow-y-auto overscroll-contain rounded-md border border-border/40 bg-background/60 px-3 py-2">
+                    <RichContent content={previewText} density="compact" phase="settled" />
+                  </div>
                   <p className="text-caption text-muted-foreground">
                     {t(($) => $.comment.continuous_confirm_preview_help)}
                   </p>

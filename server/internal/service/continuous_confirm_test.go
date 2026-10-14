@@ -78,13 +78,70 @@ func TestMergeContinuousConfirmMax(t *testing.T) {
 
 func TestMergeContinuousConfirmBrief(t *testing.T) {
 	got := MergeContinuousConfirmBrief("目标A", "目标B补充")
-	if got != "目标A\n\n---\n补充：目标B补充" {
-		t.Fatalf("unexpected merge: %q", got)
+	if !strings.Contains(got, ContinuousConfirmUserGoalsHeader) {
+		t.Fatalf("missing user goals header: %q", got)
+	}
+	if !strings.Contains(got, ContinuousConfirmLatestHeader) || !strings.Contains(got, "目标B补充") {
+		t.Fatalf("latest user opinion missing: %q", got)
+	}
+	if !strings.Contains(got, "目标A") {
+		t.Fatalf("prior goals lost: %q", got)
 	}
 	// Exact duplicate should not grow.
 	if again := MergeContinuousConfirmBrief(got, "目标B补充"); again != got {
 		t.Fatalf("duplicate should be skipped: %q", again)
 	}
+}
+
+func TestMergeContinuousConfirmBriefPrefersLatestOverTruncate(t *testing.T) {
+	// Old append-at-end + truncate dropped new user text when agent status filled the budget.
+	fat := strings.Repeat("R540 进度占位 ", 400) // well over brief max once merged
+	got := MergeContinuousConfirmBrief(fat, "美元区降价：月1.5 / 年5.5 / 买断5.5，海外宣发必须跟新价")
+	if !strings.Contains(got, "美元区降价") {
+		t.Fatalf("latest user opinion must survive truncation: %q", truncateForTest(got, 200))
+	}
+	idxLatest := strings.Index(got, "美元区降价")
+	idxFat := strings.Index(got, "R540")
+	if idxLatest < 0 || (idxFat >= 0 && idxLatest > idxFat) {
+		t.Fatalf("latest opinion should appear before old agent noise: %q", truncateForTest(got, 240))
+	}
+}
+
+func TestProtectContinuousConfirmUserBrief(t *testing.T) {
+	prev := ComposeContinuousConfirmBrief(
+		ContinuousConfirmUserGoalsHeader+"\n### 最新用户意见\n海外降价宣发\n\n长期推广 WebDAV",
+		"R540 抽样进度…",
+	)
+	// Agent overwrites with status-only string (SCS-298 failure mode).
+	got := ProtectContinuousConfirmUserBrief(prev, "R117 wrap-up 3/3 #1")
+	if !strings.Contains(got, "海外降价宣发") || !strings.Contains(got, "长期推广 WebDAV") {
+		t.Fatalf("user goals wiped: %q", got)
+	}
+	if !strings.Contains(got, "R117 wrap-up") {
+		t.Fatalf("agent polish not applied: %q", got)
+	}
+}
+
+func TestContinuousConfirmCommentHasSubstance(t *testing.T) {
+	if ContinuousConfirmCommentHasSubstance("继续") {
+		t.Fatal("bare continue has no substance")
+	}
+	if ContinuousConfirmCommentHasSubstance("接着跑吧") {
+		t.Fatal("short continue phrase has no substance")
+	}
+	if !ContinuousConfirmCommentHasSubstance("接着跑吧，不要总是停下来把有问题的地方都修正好就行") {
+		t.Fatal("long continue+instructions must count as substance")
+	}
+	if !ContinuousConfirmCommentHasSubstance("美元区降价：月1.5美元") {
+		t.Fatal("goal update must count as substance")
+	}
+}
+
+func truncateForTest(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func TestContinuousConfirmPromptNeedsUpgrade(t *testing.T) {

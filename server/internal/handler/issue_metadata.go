@@ -183,8 +183,8 @@ func (h *Handler) SetIssueMetadataKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := uuidToString(issue.WorkspaceID)
-	if actorType, _ := h.resolveActor(r, userID, workspaceID); actorType == "agent" &&
-		!service.ContinuousConfirmAgentWritableMeta(key) {
+	actorType, _ := h.resolveActor(r, userID, workspaceID)
+	if actorType == "agent" && !service.ContinuousConfirmAgentWritableMeta(key) {
 		writeError(w, http.StatusForbidden,
 			"continuous confirm control keys are server-owned; agents may only update continuous_confirm_brief")
 		return
@@ -199,13 +199,31 @@ func (h *Handler) SetIssueMetadataKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	valueBytes := []byte(req.Value)
+	// Agents must not wipe user goals when rewriting continuous_confirm_brief.
+	if actorType == "agent" && key == service.ContinuousConfirmBriefMetaKey {
+		prevBrief, _ := existing[key].(string)
+		var incoming string
+		if err := json.Unmarshal(req.Value, &incoming); err != nil {
+			writeError(w, http.StatusBadRequest, "continuous_confirm_brief must be a JSON string")
+			return
+		}
+		protected := service.ProtectContinuousConfirmUserBrief(prevBrief, incoming)
+		encoded, err := json.Marshal(protected)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to encode protected brief")
+			return
+		}
+		valueBytes = encoded
+	}
+
 	queryStarted := time.Now()
 	updated, err := wakeupWrite(h, r, func(q *db.Queries) (db.SetIssueMetadataKeyRow, error) {
 		return q.SetIssueMetadataKey(r.Context(), db.SetIssueMetadataKeyParams{
 			ID:          issue.ID,
 			WorkspaceID: issue.WorkspaceID,
 			Key:         key,
-			Value:       []byte(req.Value),
+			Value:       valueBytes,
 		})
 	})
 	queryDuration := time.Since(queryStarted)

@@ -340,7 +340,18 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 		return
 	}
 
-	switch service.ContinuousConfirmUserIntent(comment.Content) {
+	intent := service.ContinuousConfirmUserIntent(comment.Content)
+	// Always fold substantive member text into the single living brief first —
+	// even when the note also says「继续」. Old path skipped merge on continue,
+	// so 298's pricing / 红线反馈 never became the plan's "最新用户意见".
+	if intent != "stop" && service.ContinuousConfirmCommentHasSubstance(comment.Content) {
+		if merged := service.MergeContinuousConfirmBrief(plan.Brief, comment.Content); merged != plan.Brief {
+			plan.Brief = merged
+			h.setContinuousConfirmMeta(ctx, fresh, plan)
+		}
+	}
+
+	switch intent {
 	case "continue":
 		if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
 			h.resumeContinuousConfirm(ctx, fresh, plan.AgentID, plan.Rounds)
@@ -352,14 +363,13 @@ func (h *Handler) handleContinuousConfirmOnMemberComment(
 		h.disableContinuousConfirm(ctx, fresh)
 		h.postContinuousConfirmSystemComment(ctx, fresh, "【连续确认】已按你的指示结束自动续跑。")
 	default:
-		// Fold ordinary supplements into the living plan brief so follow-ups
-		// don't get ignored by the outer loop.
-		if merged := service.MergeContinuousConfirmBrief(plan.Brief, comment.Content); merged != plan.Brief {
-			plan.Brief = merged
-			h.setContinuousConfirmMeta(ctx, fresh, plan)
+		// Non-keyword follow-ups: merge (if not already) + heal stalled plans.
+		if !service.ContinuousConfirmCommentHasSubstance(comment.Content) {
+			if merged := service.MergeContinuousConfirmBrief(plan.Brief, comment.Content); merged != plan.Brief {
+				plan.Brief = merged
+				h.setContinuousConfirmMeta(ctx, fresh, plan)
+			}
 		}
-		// Heal stalled plans: enabled, no active task (missed completion hook,
-		// premature done hard-stop on older builds, etc.).
 		if !h.issueHasActiveAgentTask(ctx, fresh.ID, pgtype.UUID{}) {
 			h.resumeContinuousConfirm(ctx, fresh, plan.AgentID, plan.Rounds)
 		}

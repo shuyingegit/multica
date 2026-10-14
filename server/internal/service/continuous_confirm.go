@@ -46,6 +46,12 @@ const (
 
 	continuousConfirmAskMarker = "【连续确认】"
 	continuousConfirmBriefMax  = 6000
+
+	// Structured brief sections — user goals must survive agent rewrites.
+	ContinuousConfirmUserGoalsHeader   = "## 用户目标"
+	ContinuousConfirmLatestHeader      = "### 最新用户意见"
+	ContinuousConfirmAgentSectionMark  = "【Agent整理】"
+	ContinuousConfirmAgentSectionAlt   = "## Agent整理"
 )
 
 // ContinuousConfirmDefaultPrompt is rendered with {n}/{max}/{done}/{brief}.
@@ -156,13 +162,16 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 %s
 
 【续跑计划维护】
-- 本轮结束前，请用 issue metadata **重写** continuous_confirm_brief：整理成简洁任务目标清单（保留用户原意 + 你补充的可执行项），不要只留用户原话聊天句。
+- continuous_confirm_brief 是**整张票唯一**的续跑目标状态。结构固定为：
+  1. `## 用户目标`（含 `### 最新用户意见`）——用户原意与后续补充，**禁止删除或覆盖**
+  2. `【Agent整理】`——你可只改这一段，写成当前进度/下一步，不要把用户目标冲掉
+- 本轮结束前可用 metadata 更新 brief，但必须保留「用户目标」全文；系统也会在写入时强制保留。
 - 禁止修改 continuous_confirm_rounds / continuous_confirm_max / continuous_confirm（这三个由系统维护；乱改会导致误判「跑满」提前停机）。
 - 结束标记必须保持为：%s
 - 停机条件只有：在终评单独一行写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
 - 跑满次数 ≠ 任务完成：若目标仍是长期推广/监测，不要写结束标记，等用户加次数即可。
 - 未结束时不要复述结束标记字符串（「未写 xxx」也会被旧逻辑误伤；请直接继续做事）。
-- 不要只说「继续」——每次推进都要贴着任务目标做事；结束前必须 100%% 确认已完成或已真正 blocked。
+- 不要只说「继续」——每次推进都要贴着任务目标与**最新用户意见**做事；结束前必须 100%% 确认已完成或已真正 blocked。
 `, round, max, body, plan.EffectiveDoneMarker()))
 }
 
@@ -224,27 +233,115 @@ func ContinuousConfirmPromptNeedsUpgrade(prompt string) bool {
 	return !strings.Contains(p, "{brief}")
 }
 
-// RefineContinuousConfirmBriefFromAgent updates the 【Agent整理】 section so the
-// visible brief is not stuck on raw user chat lines when the agent forgets to
-// call metadata APIs.
+// RefineContinuousConfirmBriefFromAgent updates only the 【Agent整理】 section so
+// the visible brief keeps user goals when the agent forgets metadata APIs.
 func RefineContinuousConfirmBriefFromAgent(brief, agentText string) string {
 	summary := extractContinuousConfirmAgentSummary(agentText)
 	if summary == "" {
 		return strings.TrimSpace(brief)
 	}
-	const section = "【Agent整理】"
+	userPart, _ := SplitContinuousConfirmBrief(brief)
+	return ComposeContinuousConfirmBrief(userPart, summary)
+}
+
+// SplitContinuousConfirmBrief separates durable user goals from the agent polish
+// section. Legacy briefs without headers treat everything before 【Agent整理】 as
+// user goals (or the whole text if no agent section exists).
+func SplitContinuousConfirmBrief(brief string) (userPart, agentPart string) {
 	brief = strings.TrimSpace(brief)
-	userPart := brief
-	if i := strings.Index(brief, section); i >= 0 {
-		userPart = strings.TrimSpace(brief[:i])
+	if brief == "" {
+		return "", ""
 	}
-	refined := summary
+	for _, mark := range []string{ContinuousConfirmAgentSectionMark, ContinuousConfirmAgentSectionAlt} {
+		if i := strings.Index(brief, mark); i >= 0 {
+			userPart = strings.TrimSpace(brief[:i])
+			agentPart = strings.TrimSpace(brief[i+len(mark):])
+			agentPart = strings.TrimLeft(agentPart, "\n #")
+			return userPart, agentPart
+		}
+	}
+	return brief, ""
+}
+
+// ComposeContinuousConfirmBrief builds the canonical brief layout. Truncation
+// prefers dropping agent polish before user goals / latest user opinion.
+func ComposeContinuousConfirmBrief(userPart, agentSummary string) string {
+	userPart = strings.TrimSpace(userPart)
+	agentSummary = strings.TrimSpace(agentSummary)
+	if userPart == "" && agentSummary == "" {
+		return ""
+	}
+	var b strings.Builder
 	if userPart != "" {
-		refined = userPart + "\n\n" + section + "\n" + summary
-	} else {
-		refined = section + "\n" + summary
+		if !strings.HasPrefix(userPart, ContinuousConfirmUserGoalsHeader) &&
+			!strings.HasPrefix(userPart, "## ") {
+			b.WriteString(ContinuousConfirmUserGoalsHeader)
+			b.WriteString("\n")
+		}
+		b.WriteString(userPart)
 	}
-	return truncateRunes(refined, continuousConfirmBriefMax)
+	if agentSummary != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(ContinuousConfirmAgentSectionMark)
+		b.WriteString("\n")
+		b.WriteString(agentSummary)
+	}
+	out := strings.TrimSpace(b.String())
+	if utf8.RuneCountInString(out) <= continuousConfirmBriefMax {
+		return out
+	}
+	// Prefer keeping the full user part; shrink agent summary first.
+	budget := continuousConfirmBriefMax
+	if userPart != "" {
+		userBlock := userPart
+		if !strings.HasPrefix(userPart, ContinuousConfirmUserGoalsHeader) &&
+			!strings.HasPrefix(userPart, "## ") {
+			userBlock = ContinuousConfirmUserGoalsHeader + "\n" + userPart
+		}
+		userRunes := utf8.RuneCountInString(userBlock)
+		if userRunes >= continuousConfirmBriefMax-80 {
+			return truncateRunes(userBlock, continuousConfirmBriefMax)
+		}
+		remain := continuousConfirmBriefMax - userRunes - utf8.RuneCountInString(ContinuousConfirmAgentSectionMark) - 2
+		if remain < 40 {
+			return truncateRunes(userBlock, continuousConfirmBriefMax)
+		}
+		return strings.TrimSpace(userBlock + "\n\n" + ContinuousConfirmAgentSectionMark + "\n" + truncateRunes(agentSummary, remain))
+	}
+	return truncateRunes(out, budget)
+}
+
+// ProtectContinuousConfirmUserBrief keeps durable user goals when an agent
+// overwrites continuous_confirm_brief with a status-only string (SCS-298).
+func ProtectContinuousConfirmUserBrief(prev, incoming string) string {
+	prevUser, prevAgent := SplitContinuousConfirmBrief(prev)
+	incoming = strings.TrimSpace(incoming)
+	if incoming == "" {
+		return ComposeContinuousConfirmBrief(prevUser, prevAgent)
+	}
+
+	hasUserHeader := strings.Contains(incoming, ContinuousConfirmUserGoalsHeader)
+	hasAgentMark := strings.Contains(incoming, ContinuousConfirmAgentSectionMark) ||
+		strings.Contains(incoming, ContinuousConfirmAgentSectionAlt)
+
+	// Status-only overwrite (no structured headers): keep prev user goals,
+	// treat the whole incoming blob as agent polish.
+	if !hasUserHeader && !hasAgentMark {
+		return ComposeContinuousConfirmBrief(prevUser, incoming)
+	}
+
+	inUser, inAgent := SplitContinuousConfirmBrief(incoming)
+	userPart := strings.TrimSpace(inUser)
+	agentPart := strings.TrimSpace(inAgent)
+	if userPart == "" {
+		userPart = prevUser
+	}
+	if agentPart == "" {
+		agentPart = prevAgent
+	}
+	return ComposeContinuousConfirmBrief(userPart, agentPart)
 }
 
 func extractContinuousConfirmAgentSummary(agentText string) string {
@@ -374,7 +471,9 @@ func MergeContinuousConfirmMax(prevEffective int, incoming int, incomingSet bool
 	return next
 }
 
-// MergeContinuousConfirmBrief appends a new user supplement into the plan brief.
+// MergeContinuousConfirmBrief folds a new user supplement into the plan brief.
+// Latest user opinion is placed at the top of the user-goals section so it is
+// never lost to truncation (old append-at-end + truncate chopped supplements).
 func MergeContinuousConfirmBrief(prev, addition string) string {
 	addition = strings.TrimSpace(addition)
 	if addition == "" {
@@ -385,16 +484,71 @@ func MergeContinuousConfirmBrief(prev, addition string) string {
 	if addition == "" {
 		return strings.TrimSpace(prev)
 	}
-	prev = strings.TrimSpace(prev)
-	if prev == "" {
-		return truncateRunes(addition, continuousConfirmBriefMax)
-	}
+	userPart, agentPart := SplitContinuousConfirmBrief(prev)
+	userPart = strings.TrimSpace(userPart)
 	// Avoid duplicating the exact same block.
-	if strings.Contains(prev, addition) {
-		return prev
+	if userPart != "" && strings.Contains(userPart, addition) {
+		return ComposeContinuousConfirmBrief(userPart, agentPart)
 	}
-	merged := prev + "\n\n---\n补充：" + addition
-	return truncateRunes(merged, continuousConfirmBriefMax)
+	latest := ContinuousConfirmLatestHeader + "\n" + addition
+	var nextUser string
+	if userPart == "" {
+		nextUser = ContinuousConfirmUserGoalsHeader + "\n" + latest
+	} else {
+		body := userPart
+		if strings.HasPrefix(body, ContinuousConfirmUserGoalsHeader) {
+			body = strings.TrimSpace(strings.TrimPrefix(body, ContinuousConfirmUserGoalsHeader))
+		}
+		// Drop a previous "最新用户意见" block so we only keep one latest.
+		if i := strings.Index(body, ContinuousConfirmLatestHeader); i >= 0 {
+			after := body[i+len(ContinuousConfirmLatestHeader):]
+			// Skip until blank line after previous latest, then keep the rest as history.
+			rest := after
+			if j := strings.Index(after, "\n\n"); j >= 0 {
+				rest = after[j+2:]
+			} else {
+				rest = ""
+			}
+			body = strings.TrimSpace(rest)
+		}
+		if body != "" {
+			nextUser = ContinuousConfirmUserGoalsHeader + "\n" + latest + "\n\n" + body
+		} else {
+			nextUser = ContinuousConfirmUserGoalsHeader + "\n" + latest
+		}
+	}
+	return ComposeContinuousConfirmBrief(nextUser, agentPart)
+}
+
+// ContinuousConfirmCommentHasSubstance is true when a member comment carries
+// real instructions beyond a bare「继续/结束」keyword (SCS-298 coherence).
+func ContinuousConfirmCommentHasSubstance(content string) bool {
+	s := strings.TrimSpace(stripVisitorNoise(content))
+	if s == "" {
+		return false
+	}
+	// Strip attachment markdown so a lone image +「继续」does not count as goals.
+	s = regexp.MustCompile(`!\[[^\]]*\]\([^)]+\)`).ReplaceAllString(s, " ")
+	s = strings.TrimSpace(s)
+	lower := strings.ToLower(s)
+	for _, kw := range []string{
+		"继续", "续跑", "continue", "yes", "y", "ok", "好", "好的", "接着", "接着做", "再来",
+		"结束", "停止", "stop", "不用了", "取消", "别续了", "停止续跑",
+		"请继续", "继续处理", "继续推进", "keep going", "接着干", "接着跑",
+		"结束连续确认", "停止连续确认", "不要续跑", "别续跑", "取消连续确认",
+	} {
+		lower = strings.ReplaceAll(lower, strings.ToLower(kw), " ")
+	}
+	lower = strings.TrimSpace(strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\n', '\t', '\r', '，', '。', '！', '？', ',', '.', '!', '?', '、', '；', ';', '：', ':', '吧', '呢', '啊', '呀':
+			return ' '
+		default:
+			return r
+		}
+	}, lower))
+	lower = strings.Join(strings.Fields(lower), "")
+	return utf8.RuneCountInString(lower) >= 8
 }
 
 func stripVisitorNoise(s string) string {
@@ -495,6 +649,9 @@ func ContinuousConfirmNeedsIntervention(text string) bool {
 }
 
 // ContinuousConfirmUserIntent classifies a member reply while we are waiting.
+// Long comments that happen to contain「继续」are still "continue" for resume
+// purposes — callers must also MergeContinuousConfirmBrief when
+// ContinuousConfirmCommentHasSubstance is true, otherwise user goals are lost.
 func ContinuousConfirmUserIntent(content string) string {
 	s := strings.TrimSpace(strings.ToLower(content))
 	s = strings.ReplaceAll(s, "`", "")
@@ -503,18 +660,29 @@ func ContinuousConfirmUserIntent(content string) string {
 		return ""
 	}
 	switch s {
-	case "继续", "续跑", "continue", "yes", "y", "ok", "好", "好的", "接着", "接着做", "再来":
+	case "继续", "续跑", "continue", "yes", "y", "ok", "好", "好的", "接着", "接着做", "再来", "接着跑", "接着跑吧":
 		return "continue"
 	case "结束", "停止", "stop", "不用了", "取消", "别续了", "停止续跑":
 		return "stop"
 	}
-	continueHints := []string{"继续", "续跑", "接着做", "接着干", "请继续", "继续处理", "继续推进", "keep going", "continue"}
 	stopHints := []string{"结束连续确认", "停止连续确认", "不要续跑", "别续跑", "停止续跑", "取消连续确认"}
 	for _, h := range stopHints {
 		if strings.Contains(s, h) {
 			return "stop"
 		}
 	}
+	// Bare continue: short notes only. Substantial comments return "" so the
+	// default path merges goals; resume still happens via stalled-plan heal.
+	if ContinuousConfirmCommentHasSubstance(content) {
+		continueHints := []string{"继续", "续跑", "接着做", "接着干", "接着跑", "请继续", "继续处理", "继续推进", "keep going", "continue"}
+		for _, h := range continueHints {
+			if strings.Contains(s, h) {
+				return "continue"
+			}
+		}
+		return ""
+	}
+	continueHints := []string{"继续", "续跑", "接着做", "接着干", "接着跑", "请继续", "继续处理", "继续推进", "keep going", "continue"}
 	for _, h := range continueHints {
 		if strings.Contains(s, h) {
 			return "continue"

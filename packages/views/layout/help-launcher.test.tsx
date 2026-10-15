@@ -121,6 +121,17 @@ describe("HelpLauncher", () => {
     });
   });
 
+  it("does not show a raw git SHA as the official base (incomparable to vX.Y.Z)", async () => {
+    configStore.getState().setServerVersion("fork-20261014-234356");
+    configStore.getState().setUpstreamBaseVersion("52b26900c");
+    render(<HelpLauncher />);
+    await waitFor(() => {
+      expect(screen.getByText("Official latest v9.9.9")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/52b26900c/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Based on official/)).not.toBeInTheDocument();
+  });
+
   // MUL-6462: after web onboarding the desktop download CTA was unreachable —
   // no entry anywhere in the app, so users had to remember the URL or detour
   // through the marketing site. The Help menu is the persistent home for it.

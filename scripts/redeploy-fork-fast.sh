@@ -70,6 +70,16 @@ export DATE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 if [[ -z "${UPSTREAM_VERSION:-}" && -f UPSTREAM_BASE ]]; then
   UPSTREAM_VERSION="$(tr -d '[:space:]' < UPSTREAM_BASE)"
 fi
+# Help popover compares base vs GitHub latest — both must be vX.Y.Z, not a SHA.
+if [[ -n "${UPSTREAM_VERSION:-}" && ! "${UPSTREAM_VERSION}" =~ ^v?[0-9]+\.[0-9]+ ]]; then
+  if git rev-parse --verify "${UPSTREAM_VERSION}^{commit}" >/dev/null 2>&1; then
+    resolved="$(git describe --tags --abbrev=0 "${UPSTREAM_VERSION}" 2>/dev/null || true)"
+    if [[ -n "${resolved}" ]]; then
+      echo "    note: UPSTREAM_VERSION ${UPSTREAM_VERSION} → ${resolved} (semver for Help UI)"
+      UPSTREAM_VERSION="${resolved}"
+    fi
+  fi
+fi
 export UPSTREAM_VERSION="${UPSTREAM_VERSION:-}"
 
 COMPOSE=(docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.yml)

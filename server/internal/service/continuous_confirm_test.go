@@ -150,6 +150,61 @@ func TestProtectContinuousConfirmUserBrief(t *testing.T) {
 	}
 }
 
+func TestProtectContinuousConfirmUserBriefAllowsTodoTriage(t *testing.T) {
+	prev := ComposeContinuousConfirmBrief(
+		ContinuousConfirmUserGoalsHeader+`
+### 主线任务
+- 安卓 AVD 联调与推广文档
+
+### 待办
+- [ ] Windows BAT 打包报错
+- [ ] 找图误匹配
+
+### 用户意见记录
+人家无法执行啊
+`,
+		"R20 正在修 BAT",
+	)
+	// Agent marks the one-off bug done and keeps mainline — must be accepted,
+	// while opinion log must survive even if omitted from the rewrite.
+	incoming := ContinuousConfirmUserGoalsHeader + `
+### 主线任务
+- 安卓 AVD 联调与推广文档
+
+### 待办
+- [ ] 找图误匹配
+
+### 已完成
+- [x] Windows BAT 打包报错
+
+【Agent整理】
+BAT 已修并实测；下一轮盯找图。
+`
+	got := ProtectContinuousConfirmUserBrief(prev, incoming)
+	if !strings.Contains(got, "安卓 AVD") {
+		t.Fatalf("mainline lost: %q", got)
+	}
+	if !strings.Contains(got, "找图误匹配") {
+		t.Fatalf("open todo lost: %q", got)
+	}
+	if strings.Contains(got, ContinuousConfirmTodoHeader) && strings.Contains(
+		got[strings.Index(got, ContinuousConfirmTodoHeader):strings.Index(got, ContinuousConfirmDoneHeader)+1],
+		"Windows BAT 打包报错",
+	) {
+		// BAT should have left the open-todo section.
+		todo := extractContinuousConfirmSection(got, ContinuousConfirmTodoHeader)
+		if strings.Contains(todo, "Windows BAT") {
+			t.Fatalf("finished bug still in 待办: %q", got)
+		}
+	}
+	if !strings.Contains(got, "人家无法执行啊") {
+		t.Fatalf("opinion log wiped: %q", got)
+	}
+	if !strings.Contains(got, "BAT 已修") {
+		t.Fatalf("agent polish missing: %q", got)
+	}
+}
+
 func TestContinuousConfirmCommentHasSubstance(t *testing.T) {
 	if ContinuousConfirmCommentHasSubstance("继续") {
 		t.Fatal("bare continue has no substance")

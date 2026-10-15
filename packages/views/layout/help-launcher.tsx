@@ -35,6 +35,22 @@ const DOWNLOAD_URL = "https://multica.ai/download";
 const OFFICIAL_LATEST_RELEASE_URL =
   "https://api.github.com/repos/multica-ai/multica/releases/latest";
 
+/**
+ * Normalize a release/base stamp to `vX.Y.Z` for Help UI comparison.
+ * Git SHAs / fork build ids return null so we never show
+ * `基于官方 52b26900c（最新 v0.6.2）` which cannot be compared.
+ */
+export function formatOfficialSemverLabel(
+  raw: string | null | undefined,
+): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/v?(\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?)/i);
+  if (!m) return null;
+  return `v${m[1]}`;
+}
+
 /** Public GitHub latest release tag for multica-ai/multica. Best-effort. */
 export async function fetchOfficialLatestVersion(
   fetchImpl: typeof fetch = fetch,
@@ -52,7 +68,7 @@ export async function fetchOfficialLatestVersion(
       typeof (data as { tag_name: unknown }).tag_name === "string"
     ) {
       const tag = (data as { tag_name: string }).tag_name.trim();
-      return tag || null;
+      return formatOfficialSemverLabel(tag);
     }
     return null;
   } catch {
@@ -91,19 +107,24 @@ export function HelpLauncher() {
 
   const showVersionRow = !!serverVersion || !!upstreamBaseVersion;
 
+  // Only show comparable semver pairs (v0.x.x vs v0.x.x). A raw git SHA base
+  // is dropped so the Help row never mixes 52b26900c with v0.6.2.
+  const baseLabel = formatOfficialSemverLabel(upstreamBaseVersion);
+  const latestLabel = formatOfficialSemverLabel(officialLatest);
+
   let officialLine: string | null = null;
-  if (upstreamBaseVersion && officialLatest) {
+  if (baseLabel && latestLabel) {
     officialLine = t(($) => $.help.official_base_with_latest, {
-      base: upstreamBaseVersion,
-      latest: officialLatest,
+      base: baseLabel,
+      latest: latestLabel,
     });
-  } else if (upstreamBaseVersion) {
+  } else if (baseLabel) {
     officialLine = t(($) => $.help.official_base_only, {
-      base: upstreamBaseVersion,
+      base: baseLabel,
     });
-  } else if (officialLatest) {
+  } else if (latestLabel) {
     officialLine = t(($) => $.help.official_latest_only, {
-      latest: officialLatest,
+      latest: latestLabel,
     });
   }
 

@@ -49,6 +49,9 @@ const (
 
 	// Structured brief sections — user goals must survive agent rewrites.
 	ContinuousConfirmUserGoalsHeader   = "## 用户目标"
+	ContinuousConfirmMainlineHeader    = "### 主线任务"
+	ContinuousConfirmTodoHeader        = "### 待办"
+	ContinuousConfirmDoneHeader        = "### 已完成"
 	ContinuousConfirmLatestHeader      = "### 最新用户意见"
 	ContinuousConfirmOpinionLogHeader  = "### 用户意见记录"
 	ContinuousConfirmAgentSectionMark  = "【Agent整理】"
@@ -163,16 +166,22 @@ func ContinuousConfirmHandoffNote(plan ContinuousConfirmPlan) string {
 %s
 
 【续跑计划维护】
-- continuous_confirm_brief 是**整张票唯一**的续跑目标状态。结构固定为：
-  1. 「## 用户目标」（含「### 最新用户意见」+「### 用户意见记录」）——历次用户补充会累计保留，**禁止删除或覆盖**
-  2. 「【Agent整理】」——你可只改这一段，写成当前进度/下一步，不要把用户目标冲掉
-- 本轮结束前可用 metadata 更新 brief，但必须保留「用户目标」全文（含意见记录）；系统也会在写入时强制保留。
+- continuous_confirm_brief 是**整张票唯一**的续跑目标状态。推荐结构：
+  1. 「## 用户目标」
+     - 「### 主线任务」——长期目标，未完成前持续保留并强调
+     - 「### 待办」——一次性问题/Bug；**处理完必须勾掉或移到「### 已完成」**，禁止反复盯着已修好的 Bug
+     - 「### 已完成」——本轮/近期合上的一次性项（可短）
+     - 「### 最新用户意见」+「### 用户意见记录」——用户原话累计（审计用）；**禁止清空意见记录**
+  2. 「【Agent整理】」——本轮进度/下一步；写清勾掉了哪些待办
+- 每轮开始先 triage：读最新用户意见 → 更新主线/待办/已完成 → 只推进**未完成**项。用户没持续强调的已修 Bug 不要再当主目标。
+- 用户新评论会进意见记录；是否升入「待办/主线」由你判断，不要无脑把每句用户话都当成永久任务。
+- 本轮结束前可用 metadata 更新 brief（可改主线/待办/已完成）；系统会强制保留「用户意见记录」。
 - 禁止修改 continuous_confirm_rounds / continuous_confirm_max / continuous_confirm（这三个由系统维护；乱改会导致误判「跑满」提前停机）。
 - 结束标记必须保持为：%s
 - 停机条件只有：在终评单独一行写出结束标记、用户手动停止、或跑满次数。票被标成 done/cancelled **不会**自动停机；若你误关了票，系统会拉回并要求你对照任务目标再确认一轮。
-- 跑满次数 ≠ 任务完成：若目标仍是长期推广/监测，不要写结束标记，等用户加次数即可。
+- 跑满次数 ≠ 任务完成：若主线仍是长期推广/监测，不要写结束标记，等用户加次数即可。
 - 未结束时不要复述结束标记字符串（「未写 xxx」也会被旧逻辑误伤；请直接继续做事）。
-- 不要只说「继续」——每次推进都要贴着任务目标与**最新用户意见**做事；结束前必须 100%% 确认已完成或已真正 blocked。
+- 不要只说「继续」——每次推进都要贴着**未完成主线/待办**与最新用户意见；结束前必须 100%% 确认已完成或已真正 blocked。
 `, round, max, body, plan.EffectiveDoneMarker()))
 }
 
@@ -316,6 +325,8 @@ func ComposeContinuousConfirmBrief(userPart, agentSummary string) string {
 
 // ProtectContinuousConfirmUserBrief keeps durable user goals when an agent
 // overwrites continuous_confirm_brief with a status-only string (SCS-298).
+// Agents MAY rewrite 主线/待办/已完成 (so finished one-off bugs leave the
+// active list); 用户意见记录 is append-only and cannot be wiped.
 func ProtectContinuousConfirmUserBrief(prev, incoming string) string {
 	prevUser, prevAgent := SplitContinuousConfirmBrief(prev)
 	incoming = strings.TrimSpace(incoming)
@@ -338,11 +349,86 @@ func ProtectContinuousConfirmUserBrief(prev, incoming string) string {
 	agentPart := strings.TrimSpace(inAgent)
 	if userPart == "" {
 		userPart = prevUser
+	} else {
+		userPart = preserveContinuousConfirmOpinionLog(prevUser, userPart)
 	}
 	if agentPart == "" {
 		agentPart = prevAgent
 	}
 	return ComposeContinuousConfirmBrief(userPart, agentPart)
+}
+
+// preserveContinuousConfirmOpinionLog refuses to let an agent wipe the audit
+// trail of prior user supplements. Active lists (主线/待办/已完成) may change.
+func preserveContinuousConfirmOpinionLog(prevUser, incomingUser string) string {
+	prevLog := extractContinuousConfirmSection(prevUser, ContinuousConfirmOpinionLogHeader)
+	if prevLog == "" {
+		return incomingUser
+	}
+	inLog := extractContinuousConfirmSection(incomingUser, ContinuousConfirmOpinionLogHeader)
+	// Incoming already keeps the previous log text → accept agent triage edits.
+	if inLog != "" && strings.Contains(inLog, prevLog) {
+		return incomingUser
+	}
+	if inLog != "" && strings.Contains(prevLog, inLog) && utf8.RuneCountInString(inLog) >= utf8.RuneCountInString(prevLog)/2 {
+		// Agent may have lightly trimmed; still mostly intact.
+		return incomingUser
+	}
+	mergedLog := prevLog
+	if inLog != "" && !strings.Contains(prevLog, inLog) {
+		mergedLog = inLog + "\n\n---\n\n" + prevLog
+	}
+	return upsertContinuousConfirmSection(incomingUser, ContinuousConfirmOpinionLogHeader, mergedLog)
+}
+
+// extractContinuousConfirmSection returns the body under header until the next
+// ## / ### heading (or end). Empty if header is absent.
+func extractContinuousConfirmSection(doc, header string) string {
+	doc = strings.TrimSpace(doc)
+	i := strings.Index(doc, header)
+	if i < 0 {
+		return ""
+	}
+	after := doc[i+len(header):]
+	end := len(after)
+	for idx := 0; idx < len(after); idx++ {
+		if after[idx] != '\n' {
+			continue
+		}
+		line := after[idx+1:]
+		if strings.HasPrefix(line, "### ") || strings.HasPrefix(line, "## ") {
+			end = idx
+			break
+		}
+	}
+	return strings.TrimSpace(after[:end])
+}
+
+// upsertContinuousConfirmSection replaces or appends a ### section body.
+func upsertContinuousConfirmSection(doc, header, body string) string {
+	doc = strings.TrimSpace(doc)
+	body = strings.TrimSpace(body)
+	block := header + "\n" + body
+	i := strings.Index(doc, header)
+	if i < 0 {
+		if doc == "" {
+			return ContinuousConfirmUserGoalsHeader + "\n" + block
+		}
+		return strings.TrimSpace(doc + "\n\n" + block)
+	}
+	after := doc[i+len(header):]
+	end := len(after)
+	for idx := 0; idx < len(after); idx++ {
+		if after[idx] != '\n' {
+			continue
+		}
+		line := after[idx+1:]
+		if strings.HasPrefix(line, "### ") || strings.HasPrefix(line, "## ") {
+			end = idx
+			break
+		}
+	}
+	return strings.TrimSpace(doc[:i] + block + after[end:])
 }
 
 func extractContinuousConfirmAgentSummary(agentText string) string {

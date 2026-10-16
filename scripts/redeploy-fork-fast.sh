@@ -30,6 +30,23 @@ if [[ -f "$ROOT/scripts/fork-ports.env" ]]; then
   set +a
 fi
 
+# Compose interpolates ${JWT_SECRET:?...} — pull secrets from the usual fork
+# locations without requiring the caller to `export` first. Prefer local .env,
+# then OFFICIAL/.env (1panel dual-tree layout). Never overwrite an already-set
+# JWT_SECRET in the ambient environment.
+for _envf in "$ROOT/.env" "$ROOT/OFFICIAL/.env"; do
+  if [[ -f "$_envf" ]]; then
+    # shellcheck disable=SC1090
+    set -a
+    # shellcheck source=/dev/null
+    source "$_envf"
+    set +a
+    echo "    env:      $_envf"
+    break
+  fi
+done
+unset _envf
+
 # Re-assert after source so an empty .env cannot wipe the contract defaults.
 export FRONTEND_PORT="${FRONTEND_PORT:-3005}"
 export BACKEND_PORT="${BACKEND_PORT:-8088}"
@@ -82,11 +99,25 @@ if [[ -n "${UPSTREAM_VERSION:-}" && ! "${UPSTREAM_VERSION}" =~ ^v?[0-9]+\.[0-9]+
 fi
 export UPSTREAM_VERSION="${UPSTREAM_VERSION:-}"
 
-COMPOSE=(docker compose -f docker-compose.selfhost.yml -f docker-compose.selfhost.build.yml)
+# Prefer the untracked SCS fork overlay (Dockerfile.fork / Dockerfile.web.fork)
+# when present — Alpine busybox in the stock Dockerfile trips on $$(tr ...) shell
+# escaping that Debian's /bin/sh accepts in the fork images.
+COMPOSE=(docker compose -f docker-compose.selfhost.yml)
+if [[ -f "$ROOT/docker-compose.selfhost.fork.yml" ]]; then
+  COMPOSE+=(-f docker-compose.selfhost.fork.yml)
+  BUILD_OVERLAY=fork
+elif [[ -f "$ROOT/docker-compose.selfhost.build.yml" ]]; then
+  COMPOSE+=(-f docker-compose.selfhost.build.yml)
+  BUILD_OVERLAY=build
+else
+  echo "ERROR: need docker-compose.selfhost.fork.yml or docker-compose.selfhost.build.yml" >&2
+  exit 1
+fi
 
 echo "==> fast redeploy"
 echo "    target:   ${SERVICES[*]}"
 echo "    ports:    FE=${FRONTEND_PORT}  BE=${BACKEND_PORT}  (fork contract)"
+echo "    overlay:  ${BUILD_OVERLAY}"
 echo "    VERSION:  $VERSION"
 echo "    COMMIT:   $COMMIT"
 echo "    UPSTREAM: ${UPSTREAM_VERSION:-"(empty)"}"

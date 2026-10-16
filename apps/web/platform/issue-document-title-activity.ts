@@ -105,11 +105,12 @@ export function formatIssueDocumentTitle(
   if (!activity) return baseTitle;
   const parts: string[] = [];
   if (activity.running) {
-    parts.push(
+    // noUncheckedIndexedAccess: indexed access is `string | undefined`.
+    const frame =
       DOCUMENT_TITLE_SPINNER_FRAMES[
         Math.abs(spinFrame) % DOCUMENT_TITLE_SPINNER_FRAMES.length
-      ],
-    );
+      ] ?? DOCUMENT_TITLE_SPINNER_FRAMES[0]!;
+    parts.push(frame);
   }
   parts.push(baseTitle);
   if (activity.ageLabel) {

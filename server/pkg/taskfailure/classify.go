@@ -374,6 +374,13 @@ func ProviderUnconfigured(errText string) bool {
 // empty or reworded between releases.
 var contextWindowExceededWitnesses = []string{
 	"context window limit",
+	// MiniMax (and some Claude-Code-proxied gateways) word the same 400 as
+	// "context window exceeds limit (2013)" — note "exceeds", not "limit" as
+	// the third word. Without this witness the failure lands in
+	// agent_error.unknown, which is NOT on the resume blacklist, so the next
+	// comment on the issue resumes the saturated session and dies in seconds
+	// (SCS-309 / SCS-268).
+	"context window exceeds limit",
 	"model_context_window_exceeded",
 	TerminalReasonPromptTooLong,
 }

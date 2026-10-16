@@ -45,6 +45,9 @@ func TestClassifyRules(t *testing.T) {
 		// "model_context_window_exceeded" and the CLI prints this line.
 		{"claude code context window limit", "API Error: The model has reached its context window limit.", ReasonAgentContextOverflow},
 		{"raw stop reason", `{"stop_reason":"model_context_window_exceeded"}`, ReasonAgentContextOverflow},
+		// MiniMax / proxied Claude Code gateway (SCS-309): "exceeds" ≠ "limit"
+		// as the third word — must not fall through to agent_error.unknown.
+		{"minimax context window exceeds limit 2013", "API Error: 400 invalid params, context window exceeds limit (2013)", ReasonAgentContextOverflow},
 
 		// 2. Missing config.
 		{"missing env var", "Missing environment variable: `MIFY_API_KEY`.", ReasonAgentMissingConfig},

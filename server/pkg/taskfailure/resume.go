@@ -68,6 +68,39 @@ func AuthMethodUnresolved(errText string) bool {
 	return strings.Contains(strings.ToLower(errText), authMethodUnresolvedPhrase)
 }
 
+// ContextWindowExceeded reports whether an agent error is a provider refusing
+// the request because the conversation (or the compact attempt on it) no
+// longer fits the model window.
+//
+// MiniMax (and some Claude-Code-proxied gateways) word this as
+// "context window exceeds limit (2013)" — note "exceeds", not Claude Code's
+// "context window limit". Classify maps both to agent_error.context_overflow
+// going forward, but rows written before that recogniser (or by a daemon that
+// never upgraded) land as agent_error.unknown, which is resume-safe by
+// reason alone. Without this text guard GetLastTaskSession keeps handing the
+// saturated session back and the issue is permanently bricked (SCS-309): chat
+// with the same agent works, Claude Code alone works, only the issue path
+// resumes the dead transcript.
+//
+// Keep in sync with the GetLastTaskSession / GetLastChatTaskSession resume
+// queries and with contextWindowExceededWitnesses in classify.go.
+func ContextWindowExceeded(errText string) bool {
+	if errText == "" {
+		return false
+	}
+	lower := strings.ToLower(errText)
+	for _, w := range []string{
+		"context window exceeds limit",
+		"context window limit",
+		"model_context_window_exceeded",
+	} {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClaudeResumePipeClosed reports whether an agent error is Claude Code dying
 // while Multica was still writing the prompt/control frame to stdin — the
 // classic "write |1: file already closed" / "pipe has been ended" symptom.

@@ -67,6 +67,21 @@ func TestResumeUnsafeFailureEmptyHistoryMessage(t *testing.T) {
 			want:          true,
 		},
 		{
+			// SCS-309: MiniMax overflow classified as unknown before the
+			// recogniser landed; without the text guard every later comment
+			// resumes the saturated issue session.
+			name:          "minimax context window exceeds limit unknown reason",
+			failureReason: "agent_error.unknown",
+			errorText:     "API Error: 400 invalid params, context window exceeds limit (2013)",
+			want:          true,
+		},
+		{
+			name:          "claude context window limit unknown reason",
+			failureReason: "agent_error.unknown",
+			errorText:     "API Error: The model has reached its context window limit.",
+			want:          true,
+		},
+		{
 			// Transient failures must stay resumable: the whole point of
 			// reusing the session on retry is to keep the conversation.
 			name:          "provider network drop stays resumable",

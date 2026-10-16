@@ -235,6 +235,49 @@ func TestAuthMethodUnresolvedMatchesResumeQueryGuard(t *testing.T) {
 	}
 }
 
+func TestContextWindowExceeded(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  string
+		want bool
+	}{
+		{
+			name: "minimax 2013",
+			err:  "API Error: 400 invalid params, context window exceeds limit (2013)",
+			want: true,
+		},
+		{
+			name: "claude wording",
+			err:  "API Error: The model has reached its context window limit.",
+			want: true,
+		},
+		{
+			name: "stop reason",
+			err:  `{"stop_reason":"model_context_window_exceeded"}`,
+			want: true,
+		},
+		{
+			name: "unrelated limit",
+			err:  "rate limit exceeded",
+			want: false,
+		},
+		{
+			name: "empty",
+			err:  "",
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ContextWindowExceeded(tc.err); got != tc.want {
+				t.Fatalf("ContextWindowExceeded(%q) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestClaudeResumePipeClosed(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

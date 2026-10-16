@@ -1223,6 +1223,16 @@ WHERE session_id NOT IN (SELECT session_id FROM retired_sessions)
       -- daemon's in-turn fresh-session retry reads (GH #6777). This guard stays
       -- because it is the only protection for rows an older daemon wrote.
       AND NOT (COALESCE(error, '') ILIKE '%could not resolve authentication method%')
+      -- SCS-309 / MiniMax: "context window exceeds limit (2013)" (and Claude's
+      -- "context window limit") used to land as agent_error.unknown. Without
+      -- this text guard GetLastTaskSession resumes the saturated transcript
+      -- forever — chat with the same agent still works. Keep in sync with
+      -- taskfailure.ContextWindowExceeded and ResumeUnsafeFailure.
+      AND NOT (
+        COALESCE(error, '') ILIKE '%context window exceeds limit%'
+        OR COALESCE(error, '') ILIKE '%context window limit%'
+        OR COALESCE(error, '') ILIKE '%model_context_window_exceeded%'
+      )
       AND NOT (COALESCE(error, '') ~* 'must not be empty|must be non-?empty|must have non-?empty|non-?empty content|cannot be empty|should not be empty'
                AND COALESCE(error, '') ~* 'role[^a-z0-9]{0,2}assistant|assistant message|message at position|messages\.[0-9]|messages\[[0-9]')
     )

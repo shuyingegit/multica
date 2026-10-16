@@ -5391,7 +5391,14 @@ func ResumeUnsafeFailure(failureReason, errorText string) bool {
 	// SCS-298: Claude dying while the prompt is still being written leaves
 	// agent_error.process_failure (resume-safe by reason). The text guard is
 	// what keeps a manual rerun / claim from replaying the saturated session.
-	return taskfailure.ClaudeResumePipeClosed(errorText)
+	if taskfailure.ClaudeResumePipeClosed(errorText) {
+		return true
+	}
+	// SCS-309: MiniMax / proxied Claude "context window exceeds limit (2013)"
+	// used to classify as agent_error.unknown. Reason-only resume would keep
+	// replaying the saturated issue session while chat/Claude Code elsewhere
+	// still worked. Text guard matches Classify's witnesses.
+	return taskfailure.ContextWindowExceeded(errorText)
 }
 
 // retryEligible reports whether a failed task qualifies for an automatic retry

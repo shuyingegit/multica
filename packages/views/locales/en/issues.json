@@ -658,7 +658,7 @@
     "restart_send": "Stop and send",
     "restart_failed": "Couldn't stop the current run. Your message wasn't sent.",
     "continuous_confirm": "Keep going",
-    "continuous_confirm_hint": "When on, an outer-loop plan auto-continues after each turn. Open the gear to set rounds, prompt, and done marker.",
+    "continuous_confirm_hint": "Off by default. Check to start an outer-loop plan; open the gear for rounds, prompt, and done marker. Auto-checks when a plan is already running.",
     "continuous_confirm_settings": "Keep-going plan",
     "continuous_confirm_plan_help": "After the current turn, auto-continue up to N rounds. Stops only on the done marker, manual stop, or max rounds — marking the issue done/cancelled alone does not stop the plan.",
     "continuous_confirm_max": "Max rounds",

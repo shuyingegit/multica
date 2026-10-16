@@ -27,6 +27,24 @@ vi.mock("@multica/views/layout", () => ({
   },
 }));
 
+vi.mock("./issue-document-title-activity", () => ({
+  useIssueDocumentTitleActivity: () => null,
+  formatIssueDocumentTitle: (
+    base: string,
+    activity: { running: boolean; ageLabel: string | null } | null,
+    spinFrame = 0,
+  ) => {
+    if (!activity) return base;
+    const spin = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    const parts: string[] = [];
+    if (activity.running) parts.push(spin[Math.abs(spinFrame) % spin.length]!);
+    parts.push(base);
+    if (activity.ageLabel) parts.push(`· ${activity.ageLabel}`);
+    return parts.join(" ");
+  },
+  DOCUMENT_TITLE_SPINNER_FRAMES: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+}));
+
 import {
   MAX_PAGE_TITLE_LENGTH,
   SITE_TITLE,

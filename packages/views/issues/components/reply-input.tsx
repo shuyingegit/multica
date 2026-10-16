@@ -123,7 +123,10 @@ function ReplyInput({
     setDraft: setContinuousConfirmDraft,
   } = useContinuousConfirmDraftState();
   useEffect(() => {
-    if (!livingPlan) return;
+    if (!livingPlan) {
+      setContinuousConfirm(false);
+      return;
+    }
     setContinuousConfirmDraft(draftFromPlanOrStorage(livingPlan));
     setContinuousConfirm(true);
   }, [livingPlan?.max, livingPlan?.prompt, livingPlan?.doneMarker, livingPlan?.enabled, setContinuousConfirm, setContinuousConfirmDraft]);

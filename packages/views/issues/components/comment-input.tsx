@@ -82,9 +82,10 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
   const persistedDraft = useCommentDraftStore((store) => store.getDraft(draftKey));
   const [content, setContent] = useState(initialDraft ?? "");
   const [isEmpty, setIsEmpty] = useState(() => !initialDraft?.trim());
-  // SCS fork: outer-loop plan (default ON; gear edits max/prompt/DONE).
+  // SCS fork: outer-loop plan (default OFF — user opts in; gear edits max/prompt/DONE).
   // When a living plan already exists on the issue, seed the composer from it
-  // so a follow-up send won't silently reset max back to 20.
+  // so a follow-up send won't silently reset max back to 20, and keep the
+  // checkbox checked so continuing the plan stays one click away.
   const { data: issue } = useQuery(issueDetailOptions(wsId, issueId));
   const livingPlan = parseContinuousConfirmPlan(issue?.metadata);
   const {
@@ -94,7 +95,10 @@ function CommentInput({ issueId, onSubmit, onAccepted, onEditAnnotation }: Comme
     setDraft: setContinuousConfirmDraft,
   } = useContinuousConfirmDraftState();
   useEffect(() => {
-    if (!livingPlan) return;
+    if (!livingPlan) {
+      setContinuousConfirm(false);
+      return;
+    }
     setContinuousConfirmDraft(draftFromPlanOrStorage(livingPlan));
     setContinuousConfirm(true);
   }, [livingPlan?.max, livingPlan?.prompt, livingPlan?.doneMarker, livingPlan?.enabled, setContinuousConfirm, setContinuousConfirmDraft]);

@@ -166,9 +166,9 @@ export function ContinuousConfirmControls({
   );
 }
 
-/** Hook-friendly initial draft from localStorage. */
+/** Hook-friendly initial draft from localStorage. Default OFF — opt-in per send. */
 export function useContinuousConfirmDraftState() {
-  const [enabled, setEnabled] = useState(true);
+  const [enabled, setEnabled] = useState(false);
   const [draft, setDraft] = useState<ContinuousConfirmDraft>(() => loadContinuousConfirmDraft());
   return { enabled, setEnabled, draft, setDraft };
 }

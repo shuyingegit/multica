@@ -1,16 +1,24 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { parseTabSubject } from "@multica/core/paths";
 import { useTabPresentation } from "@multica/views/layout";
 import { SITE_TITLE, formatDocumentTitle } from "./document-title";
+import {
+  formatIssueDocumentTitle,
+  useIssueDocumentTitleActivity,
+} from "./issue-document-title-activity";
 
 /**
  * Names the browser tab after whatever the workspace route has open, e.g.
  * `MUL-123: Fix login` (MUL-6222). Without it every open dashboard
  * tab renders the root metadata title, so several issues side by side are
  * indistinguishable until you click into each one.
+ *
+ * For issue tabs, also mirrors the pinned-sidebar cues: a braille spinner while
+ * a run is live, and a trailing relative age (`· 3m`) so you can pick the right
+ * tab without opening it.
  *
  * The URL → title resolution is not ours: it is the same pure subject parser
  * plus cache-backed presentation hook that names desktop's tabs, so a browser
@@ -33,11 +41,25 @@ export function WorkspaceDocumentTitle() {
 
   const subject = useMemo(() => parseTabSubject(url), [url]);
   const { title } = useTabPresentation(url);
+  const activity = useIssueDocumentTitleActivity(subject);
+
+  const [spinFrame, setSpinFrame] = useState(0);
+  useEffect(() => {
+    if (!activity?.running) {
+      setSpinFrame(0);
+      return;
+    }
+    const id = window.setInterval(() => {
+      setSpinFrame((f) => f + 1);
+    }, 120);
+    return () => window.clearInterval(id);
+  }, [activity?.running]);
 
   // An unrecognized URL gets the site title, never the "Unknown page" label a
   // tab strip needs: a browser tab has no other place to show the product name.
-  const documentTitle =
+  const baseTitle =
     subject.kind === "unknown" ? SITE_TITLE : formatDocumentTitle(title);
+  const documentTitle = formatIssueDocumentTitle(baseTitle, activity, spinFrame);
 
   // `url` is a dependency even though `documentTitle` is what we write: an app
   // router navigation re-renders the target route's metadata and resets

@@ -639,7 +639,7 @@
     "restart_send": "停止并发送",
     "restart_failed": "没能停止当前运行，消息还没有发送。",
     "continuous_confirm": "连续确认",
-    "continuous_confirm_hint": "开启后按「续跑计划」自动外循环：可设次数、话术与结束标记。点齿轮可编辑计划。",
+    "continuous_confirm_hint": "默认关闭。勾选后按「续跑计划」自动外循环；点齿轮可设次数、话术与结束标记。已有进行中的计划时会自动勾上。",
     "continuous_confirm_settings": "续跑计划设置",
     "continuous_confirm_plan_help": "当前回合结束后按次数自动续跑。只有模型写出结束标记、你点停止、或跑满次数才会结束；票被标成 done/cancelled 不会自动停（误关会拉回并再确认）。",
     "continuous_confirm_max": "连续确认次数",

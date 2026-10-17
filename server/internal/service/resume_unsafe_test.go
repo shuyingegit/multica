@@ -82,6 +82,12 @@ func TestResumeUnsafeFailureEmptyHistoryMessage(t *testing.T) {
 			want:          true,
 		},
 		{
+			name:          "cursor stalled resume loop process_failure",
+			failureReason: "agent_error.process_failure",
+			errorText:     "cursor-agent exited with error: exit status 1; cursor stderr: RetriableError: Agent turn stopped after repeated resume attempts made no progress",
+			want:          true,
+		},
+		{
 			// Transient failures must stay resumable: the whole point of
 			// reusing the session on retry is to keep the conversation.
 			name:          "provider network drop stays resumable",

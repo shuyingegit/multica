@@ -5398,7 +5398,12 @@ func ResumeUnsafeFailure(failureReason, errorText string) bool {
 	// used to classify as agent_error.unknown. Reason-only resume would keep
 	// replaying the saturated issue session while chat/Claude Code elsewhere
 	// still worked. Text guard matches Classify's witnesses.
-	return taskfailure.ContextWindowExceeded(errorText)
+	if taskfailure.ContextWindowExceeded(errorText) {
+		return true
+	}
+	// SCS-311: Cursor long-issue sessions that stall mid-tool and exhaust
+	// Cursor's own resume loop must not be handed back on the next comment.
+	return taskfailure.CursorSessionStuck(errorText)
 }
 
 // retryEligible reports whether a failed task qualifies for an automatic retry

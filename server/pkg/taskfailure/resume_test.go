@@ -235,6 +235,44 @@ func TestAuthMethodUnresolvedMatchesResumeQueryGuard(t *testing.T) {
 	}
 }
 
+func TestCursorSessionStuck(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  string
+		want bool
+	}{
+		{
+			name: "no progress after resume loop",
+			err:  "cursor-agent exited with error: exit status 1; cursor stderr: RetriableError: Agent turn stopped after repeated resume attempts made no progress",
+			want: true,
+		},
+		{
+			name: "connection stalled repeatedly",
+			err:  "cursor-agent exited with error: exit status 1 (result_seen=false); cursor stderr: RetriableError: Connection stalled repeatedly",
+			want: true,
+		},
+		{
+			name: "unrelated stall without cursor wrapper",
+			err:  "Connection stalled repeatedly",
+			want: false,
+		},
+		{
+			name: "empty",
+			err:  "",
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CursorSessionStuck(tc.err); got != tc.want {
+				t.Fatalf("CursorSessionStuck(%q) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestContextWindowExceeded(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

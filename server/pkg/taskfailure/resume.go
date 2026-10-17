@@ -68,6 +68,34 @@ func AuthMethodUnresolved(errText string) bool {
 	return strings.Contains(strings.ToLower(errText), authMethodUnresolvedPhrase)
 }
 
+// CursorSessionStuck reports whether a Cursor agent error means the current
+// provider session can no longer make progress on resume — typically after a
+// long issue turn stalls mid-tool-call and Cursor's own resume loop gives up.
+//
+// Observed on SCS-311 (win - 万事通 Cursor): successful turns accumulate
+// multi-million cache_read tokens, then later comments die with
+// "RetriableError: Agent turn stopped after repeated resume attempts made no
+// progress" / "Connection stalled repeatedly". Classify leaves these as
+// agent_error.process_failure (resume-safe by reason), so GetLastTaskSession
+// keeps handing the same stuck Cursor session back while chat with the same
+// agent on a fresh thread still works.
+//
+// Keep in sync with the GetLastTaskSession / GetLastChatTaskSession resume
+// queries.
+func CursorSessionStuck(errText string) bool {
+	if errText == "" {
+		return false
+	}
+	lower := strings.ToLower(errText)
+	// Require the Cursor adapter wrapper so unrelated "connection stalled"
+	// tool noise is not treated as resume poison.
+	if !strings.Contains(lower, "cursor-agent exited") && !strings.Contains(lower, "cursor stderr:") {
+		return false
+	}
+	return strings.Contains(lower, "repeated resume attempts made no progress") ||
+		strings.Contains(lower, "connection stalled repeatedly")
+}
+
 // ContextWindowExceeded reports whether an agent error is a provider refusing
 // the request because the conversation (or the compact attempt on it) no
 // longer fits the model window.

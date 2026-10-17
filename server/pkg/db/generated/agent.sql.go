@@ -4354,6 +4354,14 @@ WHERE session_id NOT IN (SELECT session_id FROM retired_sessions)
         OR COALESCE(error, '') ILIKE '%context window limit%'
         OR COALESCE(error, '') ILIKE '%model_context_window_exceeded%'
       )
+      -- SCS-311 / Cursor: keep in sync with taskfailure.CursorSessionStuck
+      AND NOT (
+        (COALESCE(error, '') ILIKE '%cursor-agent exited%' OR COALESCE(error, '') ILIKE '%cursor stderr:%')
+        AND (
+          COALESCE(error, '') ILIKE '%repeated resume attempts made no progress%'
+          OR COALESCE(error, '') ILIKE '%connection stalled repeatedly%'
+        )
+      )
       AND NOT (COALESCE(error, '') ~* 'must not be empty|must be non-?empty|must have non-?empty|non-?empty content|cannot be empty|should not be empty'
                AND COALESCE(error, '') ~* 'role[^a-z0-9]{0,2}assistant|assistant message|message at position|messages\.[0-9]|messages\[[0-9]')
     )

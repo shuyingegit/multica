@@ -607,16 +607,8 @@ func (h *Handler) postContinuousConfirmSystemComment(ctx context.Context, issue 
 	})
 }
 
-func parseUUIDString(s string) (pgtype.UUID, error) {
-	if s == "" {
-		return pgtype.UUID{}, fmt.Errorf("empty uuid")
-	}
-	var u pgtype.UUID
-	if err := u.Scan(s); err != nil {
-		return pgtype.UUID{}, err
-	}
-	return u, nil
-}
+// parseUUIDString lives in issue_workflow.go (upstream MUL-7420). Do not
+// redeclare it here — the fork previously had a twin that broke the v0.6.3 merge.
 
 // injectContinuousConfirmHandoff appends the keep-going brief onto the claim
 // payload when the issue flag is on (works with existing daemon prompt code).

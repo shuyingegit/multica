@@ -164,11 +164,6 @@ func Classify(rawError string) Reason {
 			"you\u2019ve hit your limit",
 			"credits",
 			"quota",
-			// Cursor ActionRequiredError: unpaid invoice (SCS-311). Without
-			// this the adapter wrapper ("cursor-agent exited… exit status 1")
-			// falls through to process_failure and looks like a Multica crash
-			// while the agent elsewhere still has quota once billing is paid.
-			"unpaid invoice",
 		):
 		return ReasonAgentProviderQuotaLimit
 

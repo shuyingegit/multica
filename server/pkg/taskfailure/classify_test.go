@@ -49,7 +49,10 @@ func TestClassifyRules(t *testing.T) {
 		// as the third word — must not fall through to agent_error.unknown.
 		{"minimax context window exceeds limit 2013", "API Error: 400 invalid params, context window exceeds limit (2013)", ReasonAgentContextOverflow},
 
-		{"cursor unpaid invoice", "cursor-agent exited with error: exit status 1; cursor stderr: ActionRequiredError: You have an unpaid invoice Pay your unpaid invoice at cursor.com/dashboard/billing", ReasonAgentProviderQuotaLimit},
+		// Note: Cursor "unpaid invoice" ActionRequiredError is NOT treated as
+		// provider_quota_limit — accounts can still have remaining usage while
+		// that reminder appears (SCS-311). It stays process_failure unless
+		// Cursor softens the exit.
 
 		// 2. Missing config.
 		{"missing env var", "Missing environment variable: `MIFY_API_KEY`.", ReasonAgentMissingConfig},
